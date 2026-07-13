@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.8';
+const APP_VERSION = '1.0.9';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -304,6 +304,16 @@ function handleDocumentClick(event) {
   if (button.id === 'manageSitesBtn') openRegistryDialog('sites');
   if (button.id === 'exportBtn') exportData();
   if (button.id === 'importBtn') $('#importFileInput').click();
+  if (button.id === 'accessLoginBtn') {
+    event.preventDefault();
+    $('#accessLoginForm').requestSubmit();
+    return;
+  }
+  if (button.id === 'syncLoginBtn') {
+    event.preventDefault();
+    $('#syncLoginForm').requestSubmit();
+    return;
+  }
   if (button.id === 'lockBtn') lockApp();
   if (button.id === 'forceUpdateBtn') forceAppUpdate();
   if (button.id === 'installBtn') installApp();
@@ -353,8 +363,10 @@ function handleDocumentChange(event) {
 }
 
 function setView(view) {
+  const changed = state.view !== view;
   state.view = view;
   render();
+  if (changed) window.scrollTo(0, 0);
 }
 
 function render() {
@@ -784,7 +796,7 @@ function rowConfig(type, item) {
   if (type === 'account') {
     return {
       title: item.name,
-      subtitle: `${item.type || 'Conta'} - atualizado ${shortDateTime(item.updatedAt || item.createdAt)}`,
+      subtitle: item.type || 'Conta',
       icon: 'piggy-bank',
       tone: '',
       cycleTitle: '',
@@ -2099,14 +2111,17 @@ function showLoginDialog() {
   $('#accessPasswordInput').value = '';
   $('#accessLoginError').hidden = true;
   $('#accessLoginError').textContent = '';
+  setLoginButtonBusy('accessLoginBtn', false);
   if (!$('#loginDialog').open) $('#loginDialog').showModal();
   setTimeout(() => ($('#accessLoginInput').value ? $('#accessPasswordInput') : $('#accessLoginInput')).focus(), 50);
 }
 
 async function handleAccessLogin(event) {
   event.preventDefault();
+  if ($('#accessLoginBtn').disabled) return;
   const login = $('#accessLoginInput').value.trim().toLowerCase();
   const password = $('#accessPasswordInput').value.trim();
+  setLoginButtonBusy('accessLoginBtn', true);
   try {
     await authenticateSync(login, password);
     $('#accessPasswordInput').value = '';
@@ -2115,7 +2130,17 @@ async function handleAccessLogin(event) {
   } catch (error) {
     $('#accessLoginError').textContent = error.message || 'Não foi possível entrar.';
     $('#accessLoginError').hidden = false;
+  } finally {
+    setLoginButtonBusy('accessLoginBtn', false);
   }
+}
+
+function setLoginButtonBusy(buttonId, busy) {
+  const button = document.getElementById(buttonId);
+  if (!button) return;
+  button.disabled = busy;
+  button.classList.toggle('is-loading', busy);
+  button.innerHTML = iconSvg(busy ? 'refresh-cw' : 'log-in') + (busy ? 'Entrando' : 'Entrar');
 }
 
 async function authenticateSync(login, password) {
@@ -2209,10 +2234,12 @@ async function handleSyncSetup(event) {
 
 async function handleSyncLogin(event) {
   event.preventDefault();
+  if ($('#syncLoginBtn').disabled) return;
   if (!syncEnabled()) return toast('Configure a URL primeiro.', 'error');
   const login = $('#syncLoginInput').value.trim().toLowerCase();
   const password = $('#syncPinInput').value.trim();
   if (!login || !password) return toast('Informe login e senha.', 'error');
+  setLoginButtonBusy('syncLoginBtn', true);
   try {
     await authenticateSync(login, password);
     $('#syncPinInput').value = '';
@@ -2220,6 +2247,8 @@ async function handleSyncLogin(event) {
     toast('Login feito.', 'good');
   } catch (error) {
     toast(error.message || 'Login falhou.', 'error');
+  } finally {
+    setLoginButtonBusy('syncLoginBtn', false);
   }
 }
 

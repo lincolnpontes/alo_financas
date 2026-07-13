@@ -264,7 +264,7 @@
                   <span>Senha</span>
                   <input id="syncPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" />
                 </label>
-                <button class="secondary-btn" type="submit" data-icon="log-in">Entrar</button>
+                <button class="secondary-btn" type="submit" id="syncLoginBtn" data-icon="log-in">Entrar</button>
               </form>
             </div>
 
@@ -664,7 +664,7 @@
   </dialog>
 
   <dialog class="modal pin-modal" id="loginDialog">
-    <form method="dialog" class="modal-card pin-card" id="accessLoginForm">
+    <form class="modal-card pin-card" id="accessLoginForm">
       <div class="brand-lockup center">
         <img class="brand-mark" src="icon.svg" alt="" aria-hidden="true" />
         <div>
@@ -681,7 +681,7 @@
         <input id="accessPasswordInput" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" required />
       </label>
       <p class="form-error" id="accessLoginError" hidden></p>
-      <button class="primary-btn wide" type="submit" data-icon="log-in">Entrar</button>
+      <button class="primary-btn wide" type="submit" id="accessLoginBtn" data-icon="log-in">Entrar</button>
     </form>
   </dialog>
 
