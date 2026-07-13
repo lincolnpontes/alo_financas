@@ -28,6 +28,7 @@ Depois abra `http://localhost:8787`.
 3. Troque a constante `INSTALLATION_KEY`.
 4. Implante como app da Web, executando como voce e com acesso para qualquer pessoa com o link.
 5. Copie a URL terminada em `/exec`.
-6. No app, abra Ajustes e informe a URL, a chave de instalação e os PINs.
+6. No app, abra Ajustes e informe a URL, a chave de instalação e o PIN do administrador.
+7. Depois de conectado, use a seção Usuarios para cadastrar as outras pessoas e seus PINs.
 
-O PIN local fica apenas no navegador como hash com salt. O PIN do sync fica no Apps Script tambem como hash com salt, e o token de sessao fica no `sessionStorage`.
+O PIN local protege somente o aparelho. Cada usuario sincronizado tem login e PIN proprios no Apps Script, armazenados como hash com salt. O token de sessao fica no `sessionStorage`.

@@ -34,7 +34,6 @@
             <p class="eyebrow" id="todayLabel">Hoje</p>
             <h2 id="dashboardTitle">Painel da casa</h2>
           </div>
-          <button class="period-chip" type="button" data-view-jump="finances" id="dashboardMonthLabel">Mês atual</button>
         </div>
 
         <div class="metric-grid" id="metricGrid"></div>
@@ -74,9 +73,10 @@
           </div>
           <div class="month-switcher finance-month-switcher" aria-label="Mês das finanças">
             <button class="icon-btn" type="button" id="prevMonthBtn" title="Mês anterior" aria-label="Mês anterior" data-icon="chevron-left"></button>
-            <label>
-              <span>Mês exibido</span>
-              <input type="month" id="monthPicker" />
+            <label class="month-display">
+              <span>Período financeiro</span>
+              <strong id="financeMonthLabel">Mês atual</strong>
+              <input type="month" id="monthPicker" aria-label="Escolher mês" />
             </label>
             <button class="icon-btn" type="button" id="nextMonthBtn" title="Próximo mês" aria-label="Próximo mês" data-icon="chevron-right"></button>
           </div>
@@ -137,24 +137,21 @@
       </section>
 
       <section class="view" id="view-market" aria-labelledby="marketTitle" hidden>
-        <div class="view-heading">
+        <div class="view-heading market-heading">
           <div>
             <p class="eyebrow">Lista da casa</p>
             <h2 id="marketTitle">Feira</h2>
           </div>
-          <button class="primary-btn" type="button" data-open-product data-icon="plus">Novo produto</button>
-        </div>
-
-        <article class="panel market-panel">
-          <div class="market-toolbar">
-            <div>
-              <h3>Lista de compras</h3>
-            </div>
+          <div class="market-heading-actions">
             <div class="search-box">
               <span aria-hidden="true" data-static-icon="search"></span>
               <input id="productSearch" type="search" placeholder="Buscar produto" />
             </div>
+            <button class="panel-add-btn" type="button" data-open-product title="Novo produto" aria-label="Novo produto" data-icon="plus"></button>
           </div>
+        </div>
+
+        <article class="panel market-panel">
           <div class="market-filter-row">
             <div class="segmented" id="marketFilter" role="tablist" aria-label="Filtro da lista">
               <button type="button" data-market-filter="needed">Pendente</button>
@@ -183,12 +180,18 @@
         <div class="settings-grid">
           <article class="panel">
             <div class="panel-title">
-              <h3>Segurança</h3>
+              <div class="settings-title-lockup">
+                <span class="settings-emoji" aria-hidden="true">🔐</span>
+                <div>
+                  <h3>Acesso neste aparelho</h3>
+                  <p>Bloqueio local</p>
+                </div>
+              </div>
               <span class="status-pill good" id="securityStatus">PIN ativo</span>
             </div>
             <div class="form-grid">
               <label>
-                <span>Bloqueio automatico</span>
+                <span>Bloquear automaticamente após</span>
                 <select id="lockAfterSelect">
                   <option value="5">5 min</option>
                   <option value="15">15 min</option>
@@ -203,9 +206,15 @@
             </div>
           </article>
 
-          <article class="panel">
+          <article class="panel sync-panel">
             <div class="panel-title">
-              <h3>Sincronização</h3>
+              <div class="settings-title-lockup">
+                <span class="settings-emoji" aria-hidden="true">☁️</span>
+                <div>
+                  <h3>Sincronização da casa</h3>
+                  <p id="syncIdentityText">Dados compartilhados</p>
+                </div>
+              </div>
               <span class="status-pill" id="syncStatusPill">Local</span>
             </div>
             <form class="settings-form" id="syncSetupForm">
@@ -219,41 +228,62 @@
                   <input id="syncInstallKeyInput" type="password" autocomplete="off" />
                 </label>
                 <label>
-                  <span>Login principal</span>
-                  <input id="syncOwnerLoginInput" autocapitalize="none" autocomplete="username" />
+                  <span>Seu nome</span>
+                  <input id="syncOwnerNameInput" autocomplete="name" value="Lincoln" />
                 </label>
               </div>
               <div class="form-grid two">
                 <label>
-                  <span>PIN principal</span>
-                  <input id="syncOwnerPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" />
+                  <span>Seu login</span>
+                  <input id="syncOwnerLoginInput" autocapitalize="none" autocomplete="username" />
                 </label>
                 <label>
-                  <span>PIN da esposa</span>
-                  <input id="syncPartnerPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" />
+                  <span>Seu PIN</span>
+                  <input id="syncOwnerPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" />
                 </label>
               </div>
-              <button class="primary-btn" type="submit" data-icon="cloud">Conectar</button>
+              <button class="primary-btn" type="submit" data-icon="cloud">Configurar sincronização</button>
             </form>
 
-            <form class="settings-form inline-form" id="syncLoginForm">
-              <label>
-                <span>Login</span>
-                <input id="syncLoginInput" autocapitalize="none" autocomplete="username" />
-              </label>
-              <label>
-                <span>PIN</span>
-                <input id="syncPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" />
-              </label>
-              <button class="secondary-btn" type="submit" data-icon="log-in">Entrar</button>
-            </form>
+            <div class="sync-login-card" id="syncLoginCard">
+              <div>
+                <strong>Entrar neste aparelho</strong>
+                <span>Use um dos usuários cadastrados.</span>
+              </div>
+              <form class="settings-form inline-form" id="syncLoginForm">
+                <label>
+                  <span>Login</span>
+                  <input id="syncLoginInput" autocapitalize="none" autocomplete="username" />
+                </label>
+                <label>
+                  <span>PIN</span>
+                  <input id="syncPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" />
+                </label>
+                <button class="secondary-btn" type="submit" data-icon="log-in">Entrar</button>
+              </form>
+            </div>
 
             <div class="action-row">
+              <button class="secondary-btn" type="button" id="editSyncSetupBtn" data-icon="settings">Configurar</button>
               <button class="secondary-btn" type="button" id="pullSyncBtn" data-icon="download-cloud">Puxar</button>
               <button class="secondary-btn" type="button" id="pushSyncBtn" data-icon="upload-cloud">Enviar</button>
               <button class="ghost-btn" type="button" id="logoutSyncBtn">Sair</button>
             </div>
             <p class="microcopy" id="syncDetailText">Modo local</p>
+          </article>
+
+          <article class="panel users-panel">
+            <div class="panel-title">
+              <div class="settings-title-lockup">
+                <span class="settings-emoji" aria-hidden="true">👥</span>
+                <div>
+                  <h3>Usuários</h3>
+                  <p>Pessoas com acesso</p>
+                </div>
+              </div>
+              <button class="panel-add-btn" type="button" id="addSyncUserBtn" title="Cadastrar usuário" aria-label="Cadastrar usuário" data-icon="plus"></button>
+            </div>
+            <div class="users-list" id="syncUsersList"></div>
           </article>
 
           <article class="panel">
@@ -268,14 +298,17 @@
             </div>
           </article>
 
-          <article class="panel audit-panel">
+          <article class="panel settings-action-panel">
             <div class="panel-title">
-              <div>
+              <div class="settings-title-lockup">
+                <span class="settings-emoji" aria-hidden="true">📋</span>
+                <div>
                 <h3>Auditoria</h3>
+                  <p id="auditCount">0 ações</p>
+                </div>
               </div>
-              <span class="status-pill" id="auditCount">0 ações</span>
+              <button class="secondary-btn" type="button" id="openAuditBtn" data-icon="receipt">Abrir</button>
             </div>
-            <div class="audit-list" id="auditList"></div>
           </article>
 
           <article class="panel">
@@ -290,10 +323,10 @@
     </main>
 
     <nav class="bottom-nav" aria-label="Navegacao principal">
-      <button type="button" class="is-active nav-dashboard" data-view="dashboard" aria-label="Painel" title="Painel" data-icon="layout-dashboard"><span>Painel</span></button>
-      <button type="button" class="nav-finances" data-view="finances" aria-label="Finanças" title="Finanças" data-icon="wallet"><span>Finanças</span></button>
-      <button type="button" data-view="market" aria-label="Feira" title="Feira" data-icon="shopping-basket"><span>Feira</span></button>
-      <button type="button" data-view="settings" aria-label="Ajustes" title="Ajustes" data-icon="settings"><span>Ajustes</span></button>
+      <button type="button" class="is-active nav-dashboard" data-view="dashboard" aria-label="Painel" title="Painel"><span class="nav-emoji" aria-hidden="true">🏠</span><span>Painel</span></button>
+      <button type="button" class="nav-finances" data-view="finances" aria-label="Finanças" title="Finanças"><span class="nav-emoji" aria-hidden="true">💲</span><span>Finanças</span></button>
+      <button type="button" data-view="market" aria-label="Feira" title="Feira"><span class="nav-emoji" aria-hidden="true">🛒</span><span>Feira</span></button>
+      <button type="button" data-view="settings" aria-label="Ajustes" title="Ajustes"><span class="nav-emoji" aria-hidden="true">⚙️</span><span>Ajustes</span></button>
     </nav>
   </div>
 
@@ -335,13 +368,35 @@
           <span>Conta</span>
           <select id="recordAccount"></select>
         </label>
-        <label class="recurring-option span-2" id="recordRecurringWrap" hidden>
-          <input id="recordRecurring" type="checkbox" />
-          <span>
-            <strong>Repetir todos os meses</strong>
-            <small>O app incluirá automaticamente este registro no dia informado.</small>
-          </span>
+        <label id="recordPaymentWrap" hidden>
+          <span>Forma de pagamento</span>
+          <select id="recordPaymentMethod">
+            <option value="Pix">PIX</option>
+            <option value="Boleto">Boleto</option>
+            <option value="Cartão">Cartão</option>
+            <option value="Débito automático">Débito automático</option>
+            <option value="Dinheiro">Dinheiro</option>
+            <option value="Outro">Outro</option>
+          </select>
         </label>
+        <div class="recurring-controls span-2" id="recordRecurringWrap" hidden>
+          <label class="switch-row">
+            <span>
+              <strong>Recorrente todos os meses</strong>
+              <small>Mantém o dia e os demais dados.</small>
+            </span>
+            <input id="recordRecurring" type="checkbox" />
+            <i aria-hidden="true"></i>
+          </label>
+          <label class="switch-row" id="recordKeepValueWrap">
+            <span>
+              <strong>Manter o mesmo valor</strong>
+              <small>Desmarcado, o próximo mês fica pendente e sem valor.</small>
+            </span>
+            <input id="recordKeepValue" type="checkbox" checked />
+            <i aria-hidden="true"></i>
+          </label>
+        </div>
         <label class="span-2">
           <span>Observação</span>
           <textarea id="recordNotes" rows="3"></textarea>
@@ -425,6 +480,86 @@
         <button class="primary-btn" type="submit" data-icon="send">Salvar pedido</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="modal compact-modal" id="quantityDialog">
+    <form method="dialog" class="modal-card" id="quantityForm">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow">Quantidade da compra</p>
+          <h3 id="quantityDialogTitle">Produto</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="quantityDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+      </div>
+      <input type="hidden" id="quantityItemId" />
+      <div class="form-grid two">
+        <label>
+          <span>Quantidade</span>
+          <input id="quantityValueInput" inputmode="decimal" required />
+        </label>
+        <label>
+          <span>Unidade</span>
+          <input id="quantityUnitInput" list="unitOptions" required />
+          <datalist id="unitOptions">
+            <option value="un"></option>
+            <option value="kg"></option>
+            <option value="g"></option>
+            <option value="L"></option>
+            <option value="ml"></option>
+            <option value="pct"></option>
+            <option value="caixa"></option>
+            <option value="bandeja"></option>
+          </datalist>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button class="secondary-btn" type="button" data-close-dialog="quantityDialog">Cancelar</button>
+        <button class="primary-btn" type="submit" data-icon="check">Atualizar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal compact-modal" id="syncUserDialog">
+    <form method="dialog" class="modal-card" id="syncUserForm">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow">Acesso compartilhado</p>
+          <h3>Novo usuário</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="syncUserDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+      </div>
+      <label>
+        <span>Nome</span>
+        <input id="syncUserNameInput" autocomplete="name" required />
+      </label>
+      <label>
+        <span>Login</span>
+        <input id="syncUserLoginInput" autocapitalize="none" autocomplete="username" required />
+      </label>
+      <label>
+        <span>PIN</span>
+        <input id="syncUserPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" required />
+      </label>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button class="secondary-btn" type="button" data-close-dialog="syncUserDialog">Cancelar</button>
+        <button class="primary-btn" type="submit" data-icon="plus">Cadastrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal audit-modal" id="auditDialog">
+    <div class="modal-card">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow">Histórico da casa</p>
+          <h3>Auditoria</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="auditDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+      </div>
+      <div class="audit-list" id="auditList"></div>
+    </div>
   </dialog>
 
   <dialog class="modal pin-modal" id="pinDialog">

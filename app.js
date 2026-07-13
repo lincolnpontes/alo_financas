@@ -38,6 +38,7 @@ const ICONS = {
   'layout-dashboard': '<rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path>',
   'log-in': '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><path d="m10 17 5-5-5-5"></path><path d="M15 12H3"></path>',
+  minus: '<path d="M5 12h14"></path>',
   package: '<path d="m7.5 4.3 9 5.2"></path><path d="M3.3 7 12 12l8.7-5"></path><path d="M12 22V12"></path><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path>',
   'package-check': '<path d="m7.5 4.3 9 5.2"></path><path d="M3.3 7 12 12l8.7-5"></path><path d="M12 22V12"></path><path d="M21 12.5V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l2-1.1"></path><path d="m16 19 2 2 4-4"></path>',
   'package-plus': '<path d="m7.5 4.3 9 5.2"></path><path d="M3.3 7 12 12l8.7-5"></path><path d="M12 22V12"></path><path d="M21 12.5V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l2-1.1"></path><path d="M19 15v6"></path><path d="M16 18h6"></path>',
@@ -64,6 +65,7 @@ let state = {
   expenseFilter: 'all',
   marketFilter: 'all',
   productSearch: '',
+  syncSetupOpen: false,
   deferredInstall: null,
   idleTimer: null
 };
@@ -74,6 +76,7 @@ let syncState = {
   token: sessionStorage.getItem(SYNC_TOKEN_KEY) || '',
   user: readJSON(sessionStorage.getItem(SYNC_USER_KEY), null),
   revision: Number(sessionStorage.getItem(SYNC_REVISION_KEY) || 0),
+  users: [],
   busy: false,
   timer: null
 };
@@ -106,6 +109,8 @@ function bindEvents() {
   $('#recordForm').addEventListener('submit', saveRecordFromForm);
   $('#productForm').addEventListener('submit', saveProductFromForm);
   $('#orderForm').addEventListener('submit', saveOrderFromForm);
+  $('#quantityForm').addEventListener('submit', saveQuantityFromForm);
+  $('#syncUserForm').addEventListener('submit', saveSyncUserFromForm);
   $('#pinForm').addEventListener('submit', handlePinSubmit);
   $('#syncSetupForm').addEventListener('submit', handleSyncSetup);
   $('#syncLoginForm').addEventListener('submit', handleSyncLogin);
@@ -176,6 +181,18 @@ function handleDocumentClick(event) {
     return;
   }
 
+  const quantityChange = button.closest('[data-quantity-change]');
+  if (quantityChange) {
+    changeShoppingQuantity(quantityChange.dataset.id, Number(quantityChange.dataset.quantityChange));
+    return;
+  }
+
+  const editQuantity = button.closest('[data-edit-quantity]');
+  if (editQuantity) {
+    openQuantityDialog(editQuantity.dataset.id);
+    return;
+  }
+
   const expenseFilter = button.closest('[data-expense-filter]');
   if (expenseFilter) {
     state.expenseFilter = expenseFilter.dataset.expenseFilter;
@@ -194,6 +211,12 @@ function handleDocumentClick(event) {
   if (button.id === 'nextMonthBtn') shiftMonth(1);
   if (button.id === 'deleteRecordBtn') deleteCurrentRecord();
   if (button.id === 'deleteProductBtn') deleteCurrentProduct();
+  if (button.id === 'openAuditBtn') $('#auditDialog').showModal();
+  if (button.id === 'addSyncUserBtn') openSyncUserDialog();
+  if (button.id === 'editSyncSetupBtn') {
+    state.syncSetupOpen = !state.syncSetupOpen;
+    renderSyncStatus();
+  }
   if (button.id === 'exportBtn') exportData();
   if (button.id === 'importBtn') $('#importFileInput').click();
   if (button.id === 'changePinBtn') showPinDialog('change');
@@ -217,6 +240,10 @@ function handleDocumentChange(event) {
   if (event.target.id === 'monthPicker') {
     state.month = event.target.value || currentMonth();
     render();
+  }
+
+  if (event.target.id === 'recordRecurring') {
+    $('#recordKeepValueWrap').hidden = !event.target.checked;
   }
 
   if (event.target.id === 'lockAfterSelect') {
@@ -246,7 +273,7 @@ function render() {
   });
 
   $('#monthPicker').value = state.month;
-  $('#dashboardMonthLabel').textContent = capitalize(monthLabel(state.month));
+  $('#financeMonthLabel').textContent = capitalize(monthLabel(state.month));
   $('#todayLabel').textContent = DATE_LONG.format(new Date());
   renderDashboard();
   renderFinances();
@@ -256,9 +283,10 @@ function render() {
 }
 
 function renderDashboard() {
-  const totals = calculateTotals();
+  const dashboardMonth = currentMonth();
+  const totals = calculateTotals(dashboardMonth);
   const dueSoon = visible(db.finances.expenses)
-    .filter(item => item.month === state.month && item.status !== 'paid')
+    .filter(item => item.month === dashboardMonth && item.status !== 'paid')
     .sort((a, b) => Number(a.dueDay || 0) - Number(b.dueDay || 0))
     .slice(0, 6);
   const neededItems = visible(db.pantry.list)
@@ -276,7 +304,7 @@ function renderDashboard() {
   ].join('');
 
   $('#upcomingList').innerHTML = dueSoon.length
-    ? dueSoon.map(item => stackRow(item.title, `${statusLabel('expense', item.status)} - dia ${item.dueDay || '-'}`, formatMoney(item.amount), 'calendar-days', item.status === 'debt' ? 'danger' : 'warning')).join('')
+    ? dueSoon.map(item => stackRow(item.title, `${statusLabel('expense', item.status)} - dia ${item.dueDay || '-'}`, item.amount == null ? 'A definir' : formatMoney(item.amount), 'calendar-days', item.status === 'debt' ? 'danger' : 'warning')).join('')
     : emptyState('Sem vencimentos abertos neste mês.');
 
   $('#marketPreview').innerHTML = neededItems.length
@@ -397,12 +425,43 @@ function renderSettings() {
     miniStat('Reservas', totals.accountTotal),
     miniStat('Atualizado', shortDateTime(db.updatedAt))
   ].join('');
+  renderSyncUsers();
   renderAudit();
+}
+
+function renderSyncUsers() {
+  const list = $('#syncUsersList');
+  const addButton = $('#addSyncUserBtn');
+  const identity = $('#syncIdentityText');
+  const users = syncState.users || [];
+  const isOwner = syncState.user?.role === 'owner';
+  identity.textContent = syncState.user ? `Conectado como ${syncState.user.name || syncState.user.login}` : 'Dados compartilhados';
+  addButton.disabled = !isOwner;
+  addButton.title = isOwner ? 'Cadastrar usuário' : 'Entre como administrador para cadastrar';
+  list.innerHTML = users.length
+    ? users.map(user => `
+        <div class="user-row">
+          <span class="audit-avatar">${escapeHTML(initials(user.name || user.login))}</span>
+          <div>
+            <strong>${escapeHTML(user.name || user.login)}</strong>
+            <small>@${escapeHTML(user.login)}${user.role === 'owner' ? ' · administrador' : ''}</small>
+          </div>
+          ${syncState.user?.login === user.login ? '<span class="status-pill good">Você</span>' : ''}
+        </div>
+      `).join('')
+    : emptyState(syncState.user ? 'Atualize a lista de usuários.' : 'Entre na sincronização para ver os usuários.');
 }
 
 function renderSyncStatus() {
   const pill = $('#syncStatusPill');
   const detail = $('#syncDetailText');
+  const configured = syncEnabled() && syncState.meta.initialized;
+  $('#syncSetupForm').hidden = configured && !state.syncSetupOpen;
+  $('#syncLoginCard').hidden = Boolean(syncState.user) || !configured;
+  $('#editSyncSetupBtn').hidden = !configured;
+  $('#pullSyncBtn').disabled = !syncState.user;
+  $('#pushSyncBtn').disabled = !syncState.user;
+  $('#logoutSyncBtn').hidden = !syncState.user;
   if (!syncEnabled()) {
     pill.textContent = 'Local';
     pill.className = 'status-pill';
@@ -502,6 +561,7 @@ function financeRow(type, item) {
   const config = rowConfig(type, item);
   const badge = statusBadge(type, item.status);
   const amount = type === 'account' ? item.balance : item.amount;
+  const amountDisplay = amount == null ? 'Definir valor' : formatMoney(amount);
   const subtitle = config.subtitle;
   const cycle = type !== 'account'
     ? `<button class="icon-btn" type="button" title="${escapeAttr(config.cycleTitle)}" aria-label="${escapeAttr(config.cycleTitle)}" data-cycle-record="${type}" data-id="${escapeAttr(item.id)}">${iconSvg(config.cycleIcon)}</button>`
@@ -515,7 +575,7 @@ function financeRow(type, item) {
         <small>${escapeHTML(subtitle)}</small>
       </div>
       <div class="row-amount">
-        <span>${escapeHTML(formatMoney(amount))}</span>
+        <span class="${amount == null ? 'amount-empty' : ''}">${escapeHTML(amountDisplay)}</span>
         ${badge}
       </div>
       <div class="row-actions">
@@ -529,9 +589,10 @@ function financeRow(type, item) {
 function rowConfig(type, item) {
   if (type === 'expense') {
     const recurringLabel = item.recurring ? ' · fixa todo mês' : '';
+    const paymentLabel = item.paymentMethod ? ` · ${item.paymentMethod}` : '';
     return {
       title: item.title,
-      subtitle: `${item.category || 'Despesa'} · dia ${item.dueDay || '-'} · ${item.owner || 'Casa'}${recurringLabel}`,
+      subtitle: `${item.category || 'Despesa'} · dia ${item.dueDay || '-'}${paymentLabel} · ${item.owner || 'Casa'}${recurringLabel}`,
       icon: 'receipt',
       tone: item.status === 'paid' ? '' : item.status === 'debt' ? 'danger' : 'warning',
       cycleTitle: item.status === 'paid' ? 'Marcar aberto' : 'Marcar pago',
@@ -588,26 +649,32 @@ function shoppingRow(entry) {
   const needed = status === 'needed';
   const qty = item?.qty || product.defaultQty || 1;
   const unit = item?.unit || product.unit || 'un';
-  const statusText = status === 'stocked' ? 'Em casa' : marketStatusLabel(status);
-  const statusControls = item
-    ? `
-        <button class="market-action need-action ${needed ? 'is-selected' : ''}" type="button" data-list-status="needed" data-id="${escapeAttr(item.id)}" title="Marcar pendente">${iconSvg('shopping-basket')}<span>Pendente</span></button>
-        <button class="market-action order-action ${ordered ? 'is-selected' : ''}" type="button" data-list-status="ordered" data-id="${escapeAttr(item.id)}" title="Registrar pedido">${iconSvg('send')}<span>Pedir</span></button>
-        <button class="market-action bought-action ${bought ? 'is-selected' : ''}" type="button" data-list-status="bought" data-id="${escapeAttr(item.id)}" title="Marcar comprado">${iconSvg('check')}<span>Comprei</span></button>
-      `
-    : `<button class="market-action need-action" type="button" data-add-product-list="${escapeAttr(product.id)}" title="Adicionar como pendente">${iconSvg('plus')}<span>Está faltando</span></button>`;
+  const minusButton = item
+    ? `<button type="button" data-quantity-change="-1" data-id="${escapeAttr(item.id)}" title="Diminuir ou retirar" aria-label="Diminuir ou retirar ${escapeAttr(product.name)}">${iconSvg('minus')}</button>`
+    : `<button type="button" disabled aria-label="Quantidade mínima">${iconSvg('minus')}</button>`;
+  const quantityButton = item
+    ? `<button class="quantity-value" type="button" data-edit-quantity data-id="${escapeAttr(item.id)}" title="Alterar quantidade e unidade"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></button>`
+    : `<button class="quantity-value" type="button" data-edit-product data-id="${escapeAttr(product.id)}" title="Alterar quantidade padrão e unidade"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></button>`;
+  const plusButton = item
+    ? `<button type="button" data-quantity-change="1" data-id="${escapeAttr(item.id)}" title="Aumentar quantidade" aria-label="Aumentar quantidade de ${escapeAttr(product.name)}">${iconSvg('plus')}</button>`
+    : `<button type="button" data-add-product-list="${escapeAttr(product.id)}" title="Adicionar à lista" aria-label="Adicionar ${escapeAttr(product.name)} à lista">${iconSvg('plus')}</button>`;
+  const statusControls = item ? `
+    ${!needed ? `<button class="market-action need-action" type="button" data-list-status="needed" data-id="${escapeAttr(item.id)}" title="Voltar para pendente">${iconSvg('undo')}<span>Voltar</span></button>` : ''}
+    ${!ordered ? `<button class="market-action order-action" type="button" data-list-status="ordered" data-id="${escapeAttr(item.id)}" title="Registrar pedido">${iconSvg('send')}<span>Pedir</span></button>` : ''}
+    ${!bought ? `<button class="market-action bought-action" type="button" data-list-status="bought" data-id="${escapeAttr(item.id)}" title="Marcar como comprado">${iconSvg('check')}<span>Comprei</span></button>` : ''}
+  ` : '';
   return `
     <article class="shopping-item status-${escapeAttr(status)}">
-      <button class="shopping-status-mark" type="button" ${item ? `data-list-status="needed" data-id="${escapeAttr(item.id)}"` : `data-add-product-list="${escapeAttr(product.id)}"`} title="Marcar como pendente" aria-label="Marcar ${escapeAttr(product.name)} como pendente">
-        ${needed ? '⚠️' : ordered ? '📦' : bought ? '✓' : iconSvg('shopping-basket')}
-      </button>
+      <span class="product-emoji" aria-hidden="true">${productEmoji(product)}</span>
       <div class="data-main">
-        <div class="shopping-title-line">
-          <strong>${escapeHTML(product.name)}</strong>
-          <span class="badge ${escapeAttr(status)}">${escapeHTML(statusText)}</span>
-        </div>
-        <small>${escapeHTML(`${product.category || 'Mercado'} · ${qty} ${unit}${item?.site ? ` · ${item.site}` : ''}`)}</small>
+        <strong>${escapeHTML(product.name)}</strong>
+        <small>${escapeHTML(`${product.category || 'Mercado'}${item?.site ? ` · ${item.site}` : ''}`)}</small>
         ${brandLine ? `<small>${brandLine}</small>` : ''}
+      </div>
+      <div class="quantity-stepper">
+        ${minusButton}
+        ${quantityButton}
+        ${plusButton}
       </div>
       <div class="shopping-actions">
         ${statusControls}
@@ -641,6 +708,21 @@ function productHints(product) {
   return escapeHTML(parts.join(' | '));
 }
 
+function productEmoji(product) {
+  const text = normalizeText(`${product.category} ${product.name}`);
+  if (/limpeza|sabao|detergente/.test(text)) return '🧼';
+  if (/higiene|papel|shampoo/.test(text)) return '🧴';
+  if (/bebida|leite|suco|agua/.test(text)) return '🥤';
+  if (/feira|fruta|banana|tomate|verdura/.test(text)) return '🥬';
+  if (/farmacia|remedio/.test(text)) return '💊';
+  if (/pet|racao/.test(text)) return '🐾';
+  return '🧺';
+}
+
+function formatQuantity(value) {
+  return Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+}
+
 function statusBadge(type, status) {
   const label = type === 'market' ? marketStatusLabel(status) : statusLabel(type, status);
   return `<span class="badge ${escapeAttr(status || '')}">${escapeHTML(label)}</span>`;
@@ -664,9 +746,9 @@ function emptyState(message) {
   return `<div class="empty-state">${escapeHTML(message)}</div>`;
 }
 
-function calculateTotals() {
-  const expenses = visible(db.finances.expenses).filter(item => item.month === state.month);
-  const incomes = visible(db.finances.incomes).filter(item => item.month === state.month);
+function calculateTotals(month = state.month) {
+  const expenses = visible(db.finances.expenses).filter(item => item.month === month);
+  const incomes = visible(db.finances.incomes).filter(item => item.month === month);
   const accounts = visible(db.finances.accounts);
   const receivables = visible(db.finances.receivables);
   const debts = visible(db.finances.debts);
@@ -702,7 +784,8 @@ function openRecordDialog(type, id = '') {
   $('#recordType').value = type;
   $('#recordId').value = id;
   $('#recordName').value = item?.title || item?.name || item?.person || '';
-  $('#recordAmount').value = item ? formatNumberInput(type === 'account' ? item.balance : item.amount) : '';
+  const recordAmount = type === 'account' ? item?.balance : item?.amount;
+  $('#recordAmount').value = recordAmount == null ? '' : formatNumberInput(recordAmount);
   $('#recordDay').value = item?.dueDay || item?.day || item?.dueDate || '';
   $('#recordDay').type = config.dateField ? 'date' : 'text';
   $('#recordDayLabel').textContent = config.dayLabel;
@@ -711,10 +794,14 @@ function openRecordDialog(type, id = '') {
   $('#recordOwner').closest('label').hidden = !config.showOwner;
   $('#recordCategory').closest('label').hidden = !config.showCategory;
   $('#recordAccount').closest('label').hidden = !config.showAccount;
+  $('#recordPaymentWrap').hidden = type !== 'expense';
+  $('#recordPaymentMethod').value = item?.paymentMethod || 'Pix';
   const supportsRecurring = type === 'expense' || type === 'income';
   const recurrence = item?.recurrenceId ? db.finances.recurring.find(entry => entry.id === item.recurrenceId) : null;
   $('#recordRecurringWrap').hidden = !supportsRecurring;
   $('#recordRecurring').checked = supportsRecurring && Boolean(recurrence ? recurrence.active : item?.recurring);
+  $('#recordKeepValue').checked = recurrence ? recurrence.keepValue !== false : true;
+  $('#recordKeepValueWrap').hidden = !$('#recordRecurring').checked;
   $('#recordNotes').value = item?.notes || '';
   $('#deleteRecordBtn').hidden = !item;
 
@@ -736,7 +823,9 @@ function saveRecordFromForm(event) {
   const now = Date.now();
   const existing = collection.find(item => item.id === id);
   const isNew = !existing;
-  const amount = parseMoney($('#recordAmount').value);
+  const rawAmount = $('#recordAmount').value.trim();
+  const amount = parseMoney(rawAmount);
+  if (!rawAmount) return toast('Informe o valor.', 'error');
   if (!Number.isFinite(amount)) return toast('Informe um valor válido.', 'error');
 
   let item = existing || { id, createdAt: now };
@@ -765,6 +854,7 @@ function saveRecordFromForm(event) {
     item.owner = $('#recordOwner').value;
     item.category = $('#recordCategory').value;
     item.accountId = $('#recordAccount').value;
+    if (type === 'expense') item.paymentMethod = $('#recordPaymentMethod').value;
     if (type === 'expense') item.dueDay = clampDay($('#recordDay').value);
     if (type === 'income') item.day = clampDay($('#recordDay').value);
     if (!item.title) return toast('Informe o nome.', 'error');
@@ -774,7 +864,7 @@ function saveRecordFromForm(event) {
       const recurrenceId = item.recurrenceId || uid('recurring');
       item.recurrenceId = recurrenceId;
       item.recurring = true;
-      upsertRecurrence(recurrenceId, type, item);
+      upsertRecurrence(recurrenceId, type, item, $('#recordKeepValue').checked);
     } else {
       item.recurring = false;
       if (item.recurrenceId) {
@@ -925,6 +1015,56 @@ function addProductToShoppingList(productId, qty = '', unit = '') {
   toast('Item na lista.', 'good');
 }
 
+function changeShoppingQuantity(id, delta) {
+  const item = db.pantry.list.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item || !Number.isFinite(delta) || delta === 0) return;
+  const product = db.pantry.products.find(entry => entry.id === item.productId);
+
+  if (item.status === 'bought' && delta > 0 && product) {
+    addProductToShoppingList(product.id, product.defaultQty || 1, product.unit || 'un');
+    return;
+  }
+
+  const nextQty = Math.max(0, Number(item.qty || 0) + delta);
+  if (nextQty <= 0) {
+    visible(db.pantry.list).filter(entry => entry.productId === item.productId).forEach(entry => markDeleted(db.pantry.list, entry.id));
+    addAudit('retirou', 'o item da feira', item.name);
+    saveData();
+    return;
+  }
+  item.qty = nextQty;
+  item.updatedAt = Date.now();
+  addAudit('alterou', 'a quantidade do item da feira', `${item.name} para ${formatQuantity(nextQty)} ${item.unit || 'un'}`);
+  saveData();
+}
+
+function openQuantityDialog(id) {
+  const item = db.pantry.list.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item) return;
+  $('#quantityItemId').value = item.id;
+  $('#quantityDialogTitle').textContent = item.name;
+  $('#quantityValueInput').value = formatQuantity(item.qty || 1);
+  $('#quantityUnitInput').value = item.unit || 'un';
+  $('#quantityDialog').showModal();
+  $('#quantityValueInput').focus();
+}
+
+function saveQuantityFromForm(event) {
+  event.preventDefault();
+  const item = db.pantry.list.find(entry => entry.id === $('#quantityItemId').value && !entry.deletedAt);
+  if (!item) return;
+  const qty = parseDecimal($('#quantityValueInput').value);
+  const unit = $('#quantityUnitInput').value.trim();
+  if (!(qty > 0) || !unit) return toast('Informe quantidade e unidade.', 'error');
+  item.qty = qty;
+  item.unit = unit;
+  item.updatedAt = Date.now();
+  addAudit('alterou', 'a quantidade do item da feira', `${item.name} para ${formatQuantity(qty)} ${unit}`);
+  saveData();
+  closeDialog('quantityDialog');
+  toast('Quantidade atualizada.', 'good');
+}
+
 function setShoppingStatus(id, status) {
   const item = db.pantry.list.find(entry => entry.id === id);
   if (!item) return;
@@ -965,6 +1105,7 @@ function saveOrderFromForm(event) {
 function cycleRecordStatus(type, id) {
   const item = getCollection(type).find(entry => entry.id === id);
   if (!item) return;
+  if ((type === 'expense' || type === 'income') && item.amount == null) return toast('Defina o valor antes de concluir este registro.', 'error');
   if (type === 'expense') item.status = item.status === 'paid' ? 'pending' : 'paid';
   if (type === 'income') item.status = item.status === 'received' ? 'expected' : 'received';
   if (type === 'receivable') item.status = item.status === 'received' ? 'open' : 'received';
@@ -974,7 +1115,7 @@ function cycleRecordStatus(type, id) {
   saveData();
 }
 
-function upsertRecurrence(id, type, item) {
+function upsertRecurrence(id, type, item, keepValue) {
   const now = Date.now();
   let recurrence = db.finances.recurring.find(entry => entry.id === id);
   if (!recurrence) {
@@ -991,6 +1132,8 @@ function upsertRecurrence(id, type, item) {
     category: item.category,
     accountId: item.accountId,
     notes: item.notes,
+    paymentMethod: item.paymentMethod,
+    keepValue: keepValue === true,
     active: true,
     updatedAt: now,
     deletedAt: 0
@@ -1009,12 +1152,13 @@ function ensureRecurringForMonth() {
       recurrenceId: recurrence.id,
       recurring: true,
       title: recurrence.title,
-      amount: recurrence.amount,
+      amount: recurrence.keepValue === false ? null : recurrence.amount,
       month: state.month,
       owner: recurrence.owner,
       category: recurrence.category,
       accountId: recurrence.accountId,
       notes: recurrence.notes,
+      paymentMethod: recurrence.paymentMethod,
       status: recurrence.type === 'income' ? 'expected' : 'pending',
       createdAt: now,
       updatedAt: now,
@@ -1251,9 +1395,9 @@ function showPinDialog(mode) {
   $('#currentPinInput').value = '';
   $('#currentPinWrap').hidden = mode !== 'change';
   $('#pinConfirmWrap').hidden = mode === 'unlock';
-  $('#pinLabel').textContent = mode === 'unlock' ? 'PIN' : 'Novo PIN';
-  $('#pinTitle').textContent = mode === 'create' ? 'Criar PIN' : mode === 'change' ? 'Trocar PIN' : 'Entrar';
-  $('#pinSubmitBtn').textContent = mode === 'unlock' ? 'Entrar' : 'Salvar PIN';
+  $('#pinLabel').textContent = mode === 'unlock' ? 'PIN deste aparelho' : 'Novo PIN local';
+  $('#pinTitle').textContent = mode === 'create' ? 'Proteger este aparelho' : mode === 'change' ? 'Trocar PIN local' : 'Desbloquear';
+  $('#pinSubmitBtn').textContent = mode === 'unlock' ? 'Desbloquear' : 'Salvar PIN';
   $('#pinDialog').showModal();
   setTimeout(() => (mode === 'change' ? $('#currentPinInput') : $('#pinInput')).focus(), 50);
   if (mode !== 'create' && !security.hash) showPinDialog('create');
@@ -1358,7 +1502,10 @@ async function initializeSync() {
     syncState.meta.initialized = status.initialized === true;
     syncState.meta.serverTime = status.serverTime || 0;
     saveSyncMeta();
-    if (syncState.token && syncState.user) await checkRemoteRevision();
+    if (syncState.token && syncState.user) {
+      await checkRemoteRevision();
+      await refreshSyncUsers();
+    }
   } catch (error) {
     console.warn('Sync status failed', error);
   } finally {
@@ -1382,16 +1529,12 @@ async function handleSyncSetup(event) {
     const status = await syncRequest('status', {}, url);
     if (!status.initialized) {
       const ownerPin = $('#syncOwnerPinInput').value.trim();
-      const partnerPin = $('#syncPartnerPinInput').value.trim();
-      if (!/^\d{4,8}$/.test(ownerPin) || !/^\d{4,8}$/.test(partnerPin)) throw new Error('Use PINs de 4 a 8 numeros.');
+      if (!/^\d{4,8}$/.test(ownerPin)) throw new Error('Use um PIN de 4 a 8 numeros.');
       const payload = await syncRequest('bootstrap', {
         installationKey: $('#syncInstallKeyInput').value.trim(),
-        ownerName: 'Lincoln',
+        ownerName: $('#syncOwnerNameInput').value.trim() || 'Lincoln',
         ownerLogin: syncState.settings.ownerLogin,
         ownerPin,
-        partnerName: 'Aryana',
-        partnerLogin: 'aryana',
-        partnerPin,
         data: db
       }, url);
       applyAuthPayload(payload);
@@ -1405,7 +1548,8 @@ async function handleSyncSetup(event) {
     }
     $('#syncInstallKeyInput').value = '';
     $('#syncOwnerPinInput').value = '';
-    $('#syncPartnerPinInput').value = '';
+    if (syncState.user) await refreshSyncUsers();
+    state.syncSetupOpen = false;
     renderSyncStatus();
     toast('Sincronização configurada.', 'good');
   } catch (error) {
@@ -1425,6 +1569,7 @@ async function handleSyncLogin(event) {
     localStorage.setItem(LAST_LOGIN_KEY, login);
     $('#syncPinInput').value = '';
     await pullRemoteData({ merge: true, notify: false });
+    await refreshSyncUsers();
     toast('Login feito.', 'good');
   } catch (error) {
     toast(error.message || 'Login falhou.', 'error');
@@ -1581,6 +1726,7 @@ function applyAuthPayload(payload) {
   syncState.token = payload.token || '';
   syncState.user = payload.user || null;
   syncState.revision = Number(payload.revision || 0);
+  syncState.users = Array.isArray(payload.users) ? payload.users : syncState.users;
   sessionStorage.setItem(SYNC_TOKEN_KEY, syncState.token);
   sessionStorage.setItem(SYNC_USER_KEY, JSON.stringify(syncState.user));
   sessionStorage.setItem(SYNC_REVISION_KEY, String(syncState.revision));
@@ -1590,12 +1736,61 @@ function logoutSync() {
   if (syncState.token && syncEnabled()) syncRequest('logout').catch(() => {});
   syncState.token = '';
   syncState.user = null;
+  syncState.users = [];
   syncState.revision = 0;
   sessionStorage.removeItem(SYNC_TOKEN_KEY);
   sessionStorage.removeItem(SYNC_USER_KEY);
   sessionStorage.removeItem(SYNC_REVISION_KEY);
   renderSyncStatus();
+  renderSyncUsers();
   toast('Sync desconectado.', 'good');
+}
+
+async function refreshSyncUsers() {
+  if (!syncEnabled() || !syncState.user) return;
+  try {
+    const payload = await syncRequest('users');
+    syncState.users = Array.isArray(payload.users) ? payload.users : [];
+    const current = syncState.users.find(user => user.login === syncState.user?.login);
+    if (current && syncState.user) {
+      syncState.user = { ...syncState.user, ...current };
+      sessionStorage.setItem(SYNC_USER_KEY, JSON.stringify(syncState.user));
+    }
+    renderSyncUsers();
+  } catch (error) {
+    syncState.users = [];
+    renderSyncUsers();
+  }
+}
+
+function openSyncUserDialog() {
+  if (syncState.user?.role !== 'owner') return toast('Entre como administrador para cadastrar usuários.', 'error');
+  $('#syncUserNameInput').value = '';
+  $('#syncUserLoginInput').value = '';
+  $('#syncUserPinInput').value = '';
+  $('#syncUserDialog').showModal();
+  $('#syncUserNameInput').focus();
+}
+
+async function saveSyncUserFromForm(event) {
+  event.preventDefault();
+  if (syncState.user?.role !== 'owner') return toast('Apenas o administrador pode cadastrar usuários.', 'error');
+  const name = $('#syncUserNameInput').value.trim();
+  const login = $('#syncUserLoginInput').value.trim().toLowerCase();
+  const pin = $('#syncUserPinInput').value.trim();
+  if (!name || !/^[a-z0-9._-]{3,40}$/.test(login)) return toast('Informe nome e login válidos.', 'error');
+  if (!/^\d{4,8}$/.test(pin)) return toast('Use um PIN de 4 a 8 números.', 'error');
+  try {
+    const payload = await syncRequest('upsertUser', { name, login, pin });
+    syncState.users = Array.isArray(payload.users) ? payload.users : syncState.users;
+    addAudit('cadastrou', 'o usuário', name);
+    saveData();
+    closeDialog('syncUserDialog');
+    renderSyncUsers();
+    toast('Usuário cadastrado.', 'good');
+  } catch (error) {
+    toast(error.message || 'Falha ao cadastrar usuário.', 'error');
+  }
 }
 
 function loadSyncSettings() {
