@@ -2872,3 +2872,50 @@ body {
     padding-inline: 6px;
   }
 }
+
+/* Status and quantity refinements for 1.0.7 */
+.dashboard-heading {
+  align-items: center;
+}
+
+.dashboard-today {
+  margin: 0 0 0 auto;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-align: right;
+}
+
+.quantity-stepper .quantity-value,
+.shopping-request-controls .request-quantity {
+  place-items: center;
+  text-align: center;
+  cursor: pointer;
+}
+
+.quantity-stepper .quantity-value {
+  align-content: center;
+}
+
+.shopping-request-controls .request-quantity {
+  color: var(--ink);
+  font-family: inherit;
+}
+
+.quantity-stepper .quantity-value:hover,
+.shopping-request-controls .request-quantity:hover {
+  border-color: #8ebdb1;
+  background: #edf7f3;
+}
+
+@media (max-width: 520px) {
+  .dashboard-heading {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .dashboard-today {
+    max-width: 48%;
+    font-size: 0.72rem;
+  }
+}

@@ -28,11 +28,9 @@
 
     <main class="content">
       <section class="view is-active" id="view-dashboard" aria-labelledby="dashboardTitle">
-        <div class="view-heading">
-          <div>
-            <p class="eyebrow" id="todayLabel">Hoje</p>
-            <h2 id="dashboardTitle">Painel da casa</h2>
-          </div>
+        <div class="view-heading dashboard-heading">
+          <h2 id="dashboardTitle">Painel da casa</h2>
+          <p class="dashboard-today" id="todayLabel">Hoje</p>
         </div>
 
         <div class="metric-grid" id="metricGrid"></div>
@@ -67,7 +65,6 @@
       <section class="view" id="view-finances" aria-labelledby="financesTitle" hidden>
         <div class="view-heading">
           <div>
-            <p class="eyebrow">Contas mensais</p>
             <h2 id="financesTitle">Finanças</h2>
           </div>
           <div class="month-switcher finance-month-switcher" aria-label="Mês das finanças">
@@ -175,7 +172,6 @@
       <section class="view" id="view-settings" aria-labelledby="settingsTitle" hidden>
         <div class="view-heading settings-heading">
           <div>
-            <p class="eyebrow">Privacidade e dados</p>
             <h2 id="settingsTitle">Ajustes</h2>
           </div>
           <div class="settings-version-bar">
@@ -476,6 +472,7 @@
         <button class="icon-btn" type="button" data-close-dialog="quantityDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
       </div>
       <input type="hidden" id="quantityItemId" />
+      <input type="hidden" id="quantityProductId" />
       <div class="form-grid two">
         <label>
           <span>Quantidade</span>

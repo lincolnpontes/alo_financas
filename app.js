@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.6';
+const APP_VERSION = '1.0.7';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SECURITY_KEY = 'alo_financas_security_v1';
 const SESSION_UNLOCK_KEY = 'alo_financas_unlocked_v1';
@@ -69,6 +69,7 @@ let state = {
   marketCategory: 'all',
   productSearch: '',
   marketDraftQty: {},
+  marketDraftUnit: {},
   registryType: '',
   deferredInstall: null,
   idleTimer: null
@@ -240,6 +241,12 @@ function handleDocumentClick(event) {
   const editQuantity = button.closest('[data-edit-quantity]');
   if (editQuantity) {
     openQuantityDialog(editQuantity.dataset.id);
+    return;
+  }
+
+  const editDraftQuantity = button.closest('[data-edit-draft-quantity]');
+  if (editDraftQuantity) {
+    openDraftQuantityDialog(editDraftQuantity.dataset.id);
     return;
   }
 
@@ -721,18 +728,19 @@ function shoppingRow(entry) {
   const status = item?.status || 'stocked';
   const ordered = status === 'ordered';
   const bought = status === 'bought';
+  const completionLabel = ordered || (bought && (item?.completionType === 'received' || item?.site)) ? 'Recebido' : 'Comprado';
   const draftQty = Number(state.marketDraftQty[product.id] ?? product.defaultQty ?? 1);
   const qty = item?.qty || draftQty;
-  const unit = item?.unit || product.unit || 'un';
+  const unit = item?.unit || state.marketDraftUnit[product.id] || product.unit || 'un';
   const controls = item
     ? `<div class="shopping-request-controls">
-        <span class="request-quantity"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></span>
-        <button class="market-action order-action ${ordered ? 'is-selected' : ''}" type="button" data-list-status="ordered" data-id="${escapeAttr(item.id)}" title="Registrar ou editar pedido">${iconSvg('send')}<span>Pedido</span></button>
-        <button class="market-action bought-action ${bought ? 'is-selected' : ''}" type="button" data-list-status="bought" data-id="${escapeAttr(item.id)}" title="Marcar como comprado">${iconSvg('check')}<span>Comprado</span></button>
+        <button class="request-quantity" type="button" data-edit-quantity data-id="${escapeAttr(item.id)}" title="Editar quantidade e unidade"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></button>
+        <button class="market-action order-action ${ordered ? 'is-selected' : ''}" type="button" data-list-status="ordered" data-id="${escapeAttr(item.id)}" title="${ordered ? 'Voltar para pendente' : 'Registrar pedido'}">${iconSvg(ordered ? 'undo' : 'send')}<span>Pedido</span></button>
+        <button class="market-action bought-action ${bought ? 'is-selected' : ''}" type="button" data-list-status="bought" data-id="${escapeAttr(item.id)}" title="${bought ? 'Voltar para pendente' : `Marcar como ${completionLabel.toLowerCase()}`}">${iconSvg(bought ? 'undo' : 'check')}<span>${completionLabel}</span></button>
       </div>`
     : `<div class="quantity-stepper">
         <button type="button" data-draft-quantity="-1" data-id="${escapeAttr(product.id)}" ${draftQty <= 1 ? 'disabled' : ''} title="Diminuir quantidade" aria-label="Diminuir quantidade de ${escapeAttr(product.name)}">${iconSvg('minus')}</button>
-        <span class="quantity-value"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></span>
+        <button class="quantity-value" type="button" data-edit-draft-quantity data-id="${escapeAttr(product.id)}" title="Editar quantidade e unidade"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></button>
         <button type="button" data-draft-quantity="1" data-id="${escapeAttr(product.id)}" title="Aumentar quantidade" aria-label="Aumentar quantidade de ${escapeAttr(product.name)}">${iconSvg('plus')}</button>
         <button class="quantity-tick" type="button" data-mark-product-needed="${escapeAttr(product.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>
       </div>`;
@@ -1098,15 +1106,18 @@ function markProductNeeded(productId) {
     item.qty = Number(item.qty || product.defaultQty || 1);
     item.unit = item.unit || product.unit || 'un';
     item.site = '';
+    item.completionType = '';
+    item.boughtAt = 0;
     item.updatedAt = now;
   } else {
     const requestedQty = Number(state.marketDraftQty[productId] ?? product.defaultQty ?? 1);
+    const requestedUnit = state.marketDraftUnit[productId] || product.unit || 'un';
     item = {
       id: uid('list'),
       productId,
       name: product.name,
       qty: requestedQty > 0 ? requestedQty : 1,
-      unit: product.unit || 'un',
+      unit: requestedUnit,
       status: 'needed',
       site: '',
       note: product.notes || '',
@@ -1117,6 +1128,7 @@ function markProductNeeded(productId) {
     db.pantry.list.push(item);
   }
   delete state.marketDraftQty[productId];
+  delete state.marketDraftUnit[productId];
   addAudit('marcou como pendente', 'o item da feira', product.name);
   saveData();
   toast('Item adicionado à lista.', 'good');
@@ -1157,43 +1169,99 @@ function openQuantityDialog(id) {
   const item = db.pantry.list.find(entry => entry.id === id && !entry.deletedAt);
   if (!item) return;
   $('#quantityItemId').value = item.id;
+  $('#quantityProductId').value = '';
   $('#quantityDialogTitle').textContent = item.name;
   $('#quantityValueInput').value = formatQuantity(item.qty || 1);
   $('#quantityUnitInput').value = item.unit || 'un';
   const product = db.pantry.products.find(entry => entry.id === item.productId);
-  const units = Array.from(new Set(['un', 'kg', 'g', 'L', 'ml', 'pct', 'caixa', 'bandeja'].concat(parseRegistryValues(product?.units || product?.unit || ''))));
-  $('#unitOptions').innerHTML = units.map(unit => `<option value="${escapeAttr(unit)}"></option>`).join('');
+  fillQuantityUnitOptions(product);
   $('#quantityDialog').showModal();
   $('#quantityValueInput').focus();
 }
 
+function openDraftQuantityDialog(productId) {
+  const product = db.pantry.products.find(entry => entry.id === productId && !entry.deletedAt);
+  if (!product) return;
+  $('#quantityItemId').value = '';
+  $('#quantityProductId').value = product.id;
+  $('#quantityDialogTitle').textContent = product.name;
+  $('#quantityValueInput').value = formatQuantity(state.marketDraftQty[product.id] ?? product.defaultQty ?? 1);
+  $('#quantityUnitInput').value = state.marketDraftUnit[product.id] || product.unit || 'un';
+  fillQuantityUnitOptions(product);
+  $('#quantityDialog').showModal();
+  $('#quantityValueInput').focus();
+}
+
+function fillQuantityUnitOptions(product) {
+  const units = Array.from(new Set(['un', 'kg', 'g', 'L', 'ml', 'pct', 'caixa', 'bandeja'].concat(parseRegistryValues(product?.units || product?.unit || ''))));
+  $('#unitOptions').innerHTML = units.map(unit => `<option value="${escapeAttr(unit)}"></option>`).join('');
+}
+
 function saveQuantityFromForm(event) {
   event.preventDefault();
-  const item = db.pantry.list.find(entry => entry.id === $('#quantityItemId').value && !entry.deletedAt);
-  if (!item) return;
+  const itemId = $('#quantityItemId').value;
+  const productId = $('#quantityProductId').value;
   const qty = parseDecimal($('#quantityValueInput').value);
   const unit = $('#quantityUnitInput').value.trim();
   if (!(qty > 0) || !unit) return toast('Informe quantidade e unidade.', 'error');
-  item.qty = qty;
-  item.unit = unit;
-  item.updatedAt = Date.now();
-  addAudit('alterou', 'a quantidade do item da feira', `${item.name} para ${formatQuantity(qty)} ${unit}`);
-  saveData();
+
+  const item = db.pantry.list.find(entry => entry.id === itemId && !entry.deletedAt);
+  if (item) {
+    item.qty = qty;
+    item.unit = unit;
+    item.updatedAt = Date.now();
+    addAudit('alterou', 'a quantidade do item da feira', `${item.name} para ${formatQuantity(qty)} ${unit}`);
+    saveData();
+  } else {
+    const product = db.pantry.products.find(entry => entry.id === productId && !entry.deletedAt);
+    if (!product) return;
+    state.marketDraftQty[product.id] = qty;
+    state.marketDraftUnit[product.id] = unit;
+    renderShoppingList();
+  }
   closeDialog('quantityDialog');
   toast('Quantidade atualizada.', 'good');
 }
 
 function setShoppingStatus(id, status) {
-  const item = db.pantry.list.find(entry => entry.id === id);
+  const item = db.pantry.list.find(entry => entry.id === id && !entry.deletedAt);
   if (!item) return;
   if (status === 'ordered') {
+    if (item.status === 'ordered') {
+      item.status = 'needed';
+      item.site = '';
+      item.completionType = '';
+      item.boughtAt = 0;
+      item.updatedAt = Date.now();
+      addAudit('voltou para pendente', 'item da feira', item.name);
+      saveData();
+      toast('Item voltou para pendente.', 'good');
+      return;
+    }
     openOrderDialog(id);
     return;
   }
+
+  if (status === 'bought' && item.status === 'bought') {
+    item.status = 'needed';
+    item.site = '';
+    item.completionType = '';
+    item.boughtAt = 0;
+    item.updatedAt = Date.now();
+    addAudit('voltou para pendente', 'item da feira', item.name);
+    saveData();
+    toast('Item voltou para pendente.', 'good');
+    return;
+  }
+
+  const previousStatus = item.status;
   item.status = status;
   item.updatedAt = Date.now();
-  if (status === 'bought') item.boughtAt = item.updatedAt;
-  addAudit(status === 'bought' ? 'marcou como comprado' : 'marcou como pendente', 'item da feira', item.name);
+  if (status === 'bought') {
+    item.boughtAt = item.updatedAt;
+    item.completionType = previousStatus === 'ordered' ? 'received' : 'bought';
+  }
+  addAudit(item.completionType === 'received' ? 'marcou como recebido' : 'marcou como comprado', 'item da feira', item.name);
   saveData();
 }
 
@@ -1213,6 +1281,8 @@ function saveOrderFromForm(event) {
   if (!item) return;
   item.site = $('#orderSiteInput').value.trim();
   item.status = 'ordered';
+  item.completionType = '';
+  item.boughtAt = 0;
   item.updatedAt = Date.now();
   addAudit('registrou pedido', 'item da feira', `${item.name}${item.site ? ` em ${item.site}` : ''}`);
   saveData();
