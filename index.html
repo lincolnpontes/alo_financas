@@ -22,7 +22,6 @@
 
       <div class="topbar-actions">
         <button class="icon-btn" type="button" id="installBtn" title="Instalar app" aria-label="Instalar app" hidden data-icon="download"></button>
-        <button class="icon-btn" type="button" id="syncNowBtn" title="Sincronizar" aria-label="Sincronizar" data-icon="refresh-cw"></button>
         <button class="icon-btn" type="button" id="lockBtn" title="Bloquear" aria-label="Bloquear" data-icon="lock"></button>
       </div>
     </header>
@@ -138,8 +137,7 @@
       <section class="view" id="view-market" aria-labelledby="marketTitle" hidden>
         <div class="view-heading market-heading">
           <div>
-            <p class="eyebrow">Lista da casa</p>
-            <h2 id="marketTitle">Feira</h2>
+            <h2 id="marketTitle">Lista da Feira</h2>
           </div>
           <div class="market-heading-actions">
             <div class="search-box">
@@ -175,10 +173,15 @@
       </section>
 
       <section class="view" id="view-settings" aria-labelledby="settingsTitle" hidden>
-        <div class="view-heading">
+        <div class="view-heading settings-heading">
           <div>
             <p class="eyebrow">Privacidade e dados</p>
             <h2 id="settingsTitle">Ajustes</h2>
+          </div>
+          <div class="settings-version-bar">
+            <span class="status-pill" id="versionPill">v1</span>
+            <span id="appUpdatedLabel">Atualizado agora</span>
+            <button class="icon-btn" type="button" id="forceUpdateBtn" title="Forçar atualização do aplicativo" aria-label="Forçar atualização do aplicativo" data-icon="refresh-cw"></button>
           </div>
         </div>
 
@@ -298,13 +301,6 @@
             </div>
           </article>
 
-          <article class="panel">
-            <div class="panel-title">
-              <h3>Aplicativo</h3>
-              <span class="status-pill" id="versionPill">v1</span>
-            </div>
-            <div class="mini-stats" id="appStats"></div>
-          </article>
         </div>
       </section>
     </main>
@@ -344,7 +340,7 @@
           <select id="recordStatus"></select>
         </label>
         <label>
-          <span>Responsavel</span>
+          <span>Responsável</span>
           <select id="recordOwner"></select>
         </label>
         <label>
@@ -510,14 +506,20 @@
 
   <div class="context-menu" id="quickActionsMenu" role="menu" hidden>
     <div class="context-menu-title">
-      <small id="quickActionsEyebrow">Ações</small>
-      <strong id="quickActionsTitle">Item</strong>
+      <div>
+        <small id="quickActionsEyebrow">Ações</small>
+        <strong id="quickActionsTitle">Item</strong>
+      </div>
+      <button type="button" id="quickHeaderEditBtn" hidden>Editar produto</button>
     </div>
     <input type="hidden" id="quickActionsType" />
     <input type="hidden" id="quickActionsId" />
+    <input type="hidden" id="quickActionsItemId" />
     <div class="quick-action-list">
       <button type="button" id="quickStateBtn">Desfazer pagamento</button>
       <button type="button" id="quickEditBtn">Editar</button>
+      <button type="button" id="quickEditOrderBtn" hidden>Editar pedido</button>
+      <button type="button" class="danger-action" id="quickDeleteOrderBtn" hidden>Excluir pedido</button>
     </div>
   </div>
 

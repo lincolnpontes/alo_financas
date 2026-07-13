@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.5';
+const APP_VERSION = '1.0.6';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SECURITY_KEY = 'alo_financas_security_v1';
 const SESSION_UNLOCK_KEY = 'alo_financas_unlocked_v1';
@@ -16,11 +16,11 @@ const DATE_LONG = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'lon
 const MONTH_LONG = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' });
 
 const EXPENSE_CATEGORIES = ['Casa', 'Cartao', 'Saude', 'Internet', 'Mercado', 'Transporte', 'Familia', 'Impostos', 'Outros'];
-const INCOME_CATEGORIES = ['Salario', 'Extra', 'Reembolso', 'Rendimento', 'Pix', 'Outros'];
+const INCOME_CATEGORIES = ['Salário', 'Extra', 'Reembolso', 'Rendimento', 'Pix', 'Outros'];
 const ACCOUNT_TYPES = ['Conta corrente', 'Poupança', 'Investimento', 'Dinheiro', 'Carteira digital'];
 const FLOW_CATEGORIES = ['Familia', 'Trabalho', 'Reembolso', 'Emprestimo', 'Outros'];
 const DEFAULT_MARKET_CATEGORIES = ['Frios', 'Secos', 'Higiene', 'Limpeza', 'Hortifruti', 'Bebidas', 'Farmacia', 'Pet', 'Outros'];
-const OWNERS = ['Lincoln', 'Aryana', 'Casa'];
+const OWNERS = ['Todos'];
 
 const ICONS = {
   'badge-dollar-sign': '<path d="M3 11.5 12 2l9 9.5-9 9.5-9-9.5Z"></path><path d="M12 7v9"></path><path d="M14.5 9.5c-.4-.5-1.1-.8-2.1-.8-1.2 0-2 .5-2 1.3 0 2 4.4.8 4.4 3 0 .8-.8 1.4-2.1 1.4-1.1 0-2-.4-2.6-1"></path>',
@@ -68,6 +68,7 @@ let state = {
   marketFilter: 'all',
   marketCategory: 'all',
   productSearch: '',
+  marketDraftQty: {},
   registryType: '',
   deferredInstall: null,
   idleTimer: null
@@ -178,7 +179,7 @@ function handleDocumentClick(event) {
 
   const productActions = button.closest('[data-product-actions]');
   if (productActions) {
-    openProductActions(productActions.dataset.id, productActions);
+    openProductActions(productActions.dataset.id, productActions.dataset.listId, productActions);
     return;
   }
 
@@ -230,6 +231,12 @@ function handleDocumentClick(event) {
     return;
   }
 
+  const draftQuantityChange = button.closest('[data-draft-quantity]');
+  if (draftQuantityChange) {
+    changeDraftQuantity(draftQuantityChange.dataset.id, Number(draftQuantityChange.dataset.draftQuantity));
+    return;
+  }
+
   const editQuantity = button.closest('[data-edit-quantity]');
   if (editQuantity) {
     openQuantityDialog(editQuantity.dataset.id);
@@ -259,12 +266,15 @@ function handleDocumentClick(event) {
   if (button.id === 'deleteSyncUserBtn') deleteSyncUser();
   if (button.id === 'quickStateBtn') runQuickStateAction();
   if (button.id === 'quickEditBtn') runQuickEditAction();
+  if (button.id === 'quickHeaderEditBtn') runQuickProductEditAction();
+  if (button.id === 'quickEditOrderBtn') runQuickEditOrderAction();
+  if (button.id === 'quickDeleteOrderBtn') runQuickDeleteOrderAction();
   if (button.id === 'manageCategoriesBtn') openRegistryDialog('categories');
   if (button.id === 'manageSitesBtn') openRegistryDialog('sites');
   if (button.id === 'exportBtn') exportData();
   if (button.id === 'importBtn') $('#importFileInput').click();
   if (button.id === 'lockBtn') lockApp();
-  if (button.id === 'syncNowBtn') syncNow();
+  if (button.id === 'forceUpdateBtn') forceAppUpdate();
   if (button.id === 'installBtn') installApp();
 }
 
@@ -354,7 +364,10 @@ function renderDashboard() {
   ].join('');
 
   $('#upcomingList').innerHTML = dueSoon.length
-    ? dueSoon.map(item => stackRow(item.title, `${statusLabel('expense', item.status)} - dia ${item.dueDay || '-'}`, item.amount == null ? 'A definir' : formatMoney(item.amount), 'calendar-days', item.status === 'debt' ? 'danger' : 'warning')).join('')
+    ? dueSoon.map(item => {
+        const tone = expenseVisualState(item) === 'overdue' ? 'danger' : 'warning';
+        return stackRow(item.title, `${statusLabel('expense', item.status)} - dia ${item.dueDay || '-'}`, item.amount == null ? 'A definir' : formatMoney(item.amount), 'calendar-days', tone);
+      }).join('')
     : emptyState('Sem vencimentos abertos neste mês.');
 
   $('#marketPreview').innerHTML = neededItems.length
@@ -474,14 +487,8 @@ function renderShoppingList() {
 }
 
 function renderSettings() {
-  const totals = calculateTotals();
   $('#versionPill').textContent = `v${APP_VERSION}`;
-  $('#appStats').innerHTML = [
-    miniStat('Registros', visible(db.finances.expenses).length + visible(db.finances.incomes).length + visible(db.pantry.list).length),
-    miniStat('Produtos', visible(db.pantry.products).length),
-    miniStat('Reservas', totals.accountTotal),
-    miniStat('Atualizado', shortDateTime(db.updatedAt))
-  ].join('');
+  $('#appUpdatedLabel').textContent = `Atualizado ${shortDateTime(db.updatedAt)}`;
   renderSyncUsers();
   renderAudit();
 }
@@ -602,7 +609,7 @@ function miniStat(label, value) {
 
 function stackRow(title, subtitle, right, icon, tone = '') {
   return `
-    <div class="stack-row">
+    <div class="stack-row ${tone ? `stack-${escapeAttr(tone)}` : ''}">
       <span class="row-icon ${tone}">${iconSvg(icon)}</span>
       <div class="data-main">
         <strong>${escapeHTML(title)}</strong>
@@ -662,10 +669,9 @@ function rowConfig(type, item) {
     };
   }
   if (type === 'income') {
-    const recurringLabel = item.recurring ? ' · fixa todo mês' : '';
     return {
       title: item.title,
-      subtitle: `${item.category || 'Receita'} · dia ${item.day || '-'} · ${item.owner || 'Casa'}${recurringLabel}`,
+      subtitle: `${incomeCategoryLabel(item.category || 'Receita')} - Dia ${String(item.day || 1).padStart(2, '0')}`,
       icon: 'hand-coins',
       tone: item.status === 'received' ? '' : 'info',
       cycleTitle: item.status === 'received' ? 'Marcar esperado' : 'Marcar recebido',
@@ -713,42 +719,31 @@ function expenseVisualState(item) {
 function shoppingRow(entry) {
   const { product, item } = entry;
   const status = item?.status || 'stocked';
-  const brandLine = productHints(product);
   const ordered = status === 'ordered';
   const bought = status === 'bought';
-  const needed = status === 'needed';
-  const qty = item?.qty || product.defaultQty || 1;
+  const draftQty = Number(state.marketDraftQty[product.id] ?? product.defaultQty ?? 1);
+  const qty = item?.qty || draftQty;
   const unit = item?.unit || product.unit || 'un';
-  const minusButton = item
-    ? `<button type="button" data-quantity-change="-1" data-id="${escapeAttr(item.id)}" title="Diminuir ou retirar" aria-label="Diminuir ou retirar ${escapeAttr(product.name)}">${iconSvg('minus')}</button>`
-    : `<button type="button" disabled aria-label="Quantidade mínima">${iconSvg('minus')}</button>`;
-  const quantityButton = item
-    ? `<button class="quantity-value" type="button" data-edit-quantity data-id="${escapeAttr(item.id)}" title="Alterar quantidade e unidade"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></button>`
-    : `<button class="quantity-value" type="button" data-edit-product data-id="${escapeAttr(product.id)}" title="Alterar quantidade padrão e unidade"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></button>`;
-  const plusButton = item
-    ? `<button type="button" data-quantity-change="1" data-id="${escapeAttr(item.id)}" title="Aumentar quantidade" aria-label="Aumentar quantidade de ${escapeAttr(product.name)}">${iconSvg('plus')}</button>`
-    : `<button type="button" data-add-product-list="${escapeAttr(product.id)}" title="Adicionar à lista" aria-label="Adicionar ${escapeAttr(product.name)} à lista">${iconSvg('plus')}</button>`;
-  const tickButton = `<button class="quantity-tick ${needed ? 'is-selected' : ''}" type="button" data-mark-product-needed="${escapeAttr(product.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>`;
-  const statusControls = item ? `
-    ${needed ? `<button class="market-action order-action" type="button" data-list-status="ordered" data-id="${escapeAttr(item.id)}" title="Registrar pedido">${iconSvg('send')}<span>Pedir</span></button>` : ''}
-    ${!bought ? `<button class="market-action bought-action" type="button" data-list-status="bought" data-id="${escapeAttr(item.id)}" title="Marcar como comprado">${iconSvg('check')}<span>Comprei</span></button>` : ''}
-  ` : '';
-  const actionsMarkup = statusControls.trim() ? `<div class="shopping-actions">${statusControls}</div>` : '';
+  const controls = item
+    ? `<div class="shopping-request-controls">
+        <span class="request-quantity"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></span>
+        <button class="market-action order-action ${ordered ? 'is-selected' : ''}" type="button" data-list-status="ordered" data-id="${escapeAttr(item.id)}" title="Registrar ou editar pedido">${iconSvg('send')}<span>Pedido</span></button>
+        <button class="market-action bought-action ${bought ? 'is-selected' : ''}" type="button" data-list-status="bought" data-id="${escapeAttr(item.id)}" title="Marcar como comprado">${iconSvg('check')}<span>Comprado</span></button>
+      </div>`
+    : `<div class="quantity-stepper">
+        <button type="button" data-draft-quantity="-1" data-id="${escapeAttr(product.id)}" ${draftQty <= 1 ? 'disabled' : ''} title="Diminuir quantidade" aria-label="Diminuir quantidade de ${escapeAttr(product.name)}">${iconSvg('minus')}</button>
+        <span class="quantity-value"><strong>${escapeHTML(formatQuantity(qty))}</strong><small>${escapeHTML(unit)}</small></span>
+        <button type="button" data-draft-quantity="1" data-id="${escapeAttr(product.id)}" title="Aumentar quantidade" aria-label="Aumentar quantidade de ${escapeAttr(product.name)}">${iconSvg('plus')}</button>
+        <button class="quantity-tick" type="button" data-mark-product-needed="${escapeAttr(product.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>
+      </div>`;
   return `
     <article class="shopping-item status-${escapeAttr(status)}">
-      <button class="product-emoji" type="button" data-product-actions data-id="${escapeAttr(product.id)}" title="Ações de ${escapeAttr(product.name)}" aria-label="Abrir ações de ${escapeAttr(product.name)}">${productEmoji(product)}</button>
+      <button class="product-emoji" type="button" data-product-actions data-id="${escapeAttr(product.id)}" data-list-id="${escapeAttr(item?.id || '')}" title="Ações de ${escapeAttr(product.name)}" aria-label="Abrir ações de ${escapeAttr(product.name)}">${productEmoji(product)}</button>
       <div class="data-main">
         <strong>${escapeHTML(product.name)}</strong>
         <small>${escapeHTML(`${product.category || 'Mercado'}${item?.site ? ` · ${item.site}` : ''}`)}</small>
-        ${brandLine ? `<small>${brandLine}</small>` : ''}
       </div>
-      <div class="quantity-stepper">
-        ${minusButton}
-        ${quantityButton}
-        ${plusButton}
-        ${tickButton}
-      </div>
-      ${actionsMarkup}
+      ${controls}
     </article>
   `;
 }
@@ -877,8 +872,11 @@ function openRecordDialog(type, id = '') {
   $('#deleteRecordBtn').hidden = !item;
 
   fillSelect($('#recordStatus'), config.statuses, item?.status || config.defaultStatus);
-  fillSelect($('#recordOwner'), OWNERS.map(owner => [owner, owner]), item?.owner || 'Casa');
-  fillSelect($('#recordCategory'), config.categories.map(category => [category, category]), item?.category || item?.type || config.categories[0]);
+  const selectedOwner = item?.owner === 'Casa' ? 'Todos' : item?.owner || 'Todos';
+  fillSelect($('#recordOwner'), financeOwnerOptions(item?.owner), selectedOwner);
+  const storedCategory = item?.category || item?.type || config.categories[0];
+  const selectedCategory = type === 'income' && normalizeText(storedCategory) === 'salario' ? 'Salário' : storedCategory;
+  fillSelect($('#recordCategory'), config.categories.map(category => [category, category]), selectedCategory);
   fillSelect($('#recordAccount'), accountOptions(), item?.accountId || '');
 
   $('#recordDialog').showModal();
@@ -1102,11 +1100,12 @@ function markProductNeeded(productId) {
     item.site = '';
     item.updatedAt = now;
   } else {
+    const requestedQty = Number(state.marketDraftQty[productId] ?? product.defaultQty ?? 1);
     item = {
       id: uid('list'),
       productId,
       name: product.name,
-      qty: Number(product.defaultQty || 1),
+      qty: requestedQty > 0 ? requestedQty : 1,
       unit: product.unit || 'un',
       status: 'needed',
       site: '',
@@ -1117,9 +1116,18 @@ function markProductNeeded(productId) {
     };
     db.pantry.list.push(item);
   }
+  delete state.marketDraftQty[productId];
   addAudit('marcou como pendente', 'o item da feira', product.name);
   saveData();
   toast('Item adicionado à lista.', 'good');
+}
+
+function changeDraftQuantity(productId, delta) {
+  const product = db.pantry.products.find(entry => entry.id === productId && !entry.deletedAt);
+  if (!product || !Number.isFinite(delta) || delta === 0) return;
+  const current = Number(state.marketDraftQty[productId] ?? product.defaultQty ?? 1);
+  state.marketDraftQty[productId] = Math.max(1, current + delta);
+  renderShoppingList();
 }
 
 function changeShoppingQuantity(id, delta) {
@@ -1217,23 +1225,35 @@ function openExpenseActions(id, anchor) {
   if (!item) return;
   $('#quickActionsType').value = 'expense';
   $('#quickActionsId').value = item.id;
+  $('#quickActionsItemId').value = '';
   $('#quickActionsEyebrow').textContent = 'Despesa';
   $('#quickActionsTitle').textContent = item.title;
   $('#quickStateBtn').hidden = false;
+  $('#quickHeaderEditBtn').hidden = true;
+  $('#quickEditBtn').hidden = false;
+  $('#quickEditOrderBtn').hidden = true;
+  $('#quickDeleteOrderBtn').hidden = true;
   $('#quickStateBtn').innerHTML = iconSvg(item.status === 'paid' ? 'undo' : 'check') + escapeHTML(item.status === 'paid' ? 'Desfazer pagamento' : 'Marcar como pago');
   $('#quickEditBtn').innerHTML = iconSvg('edit-3') + 'Editar';
   showQuickActionsMenu(anchor);
 }
 
-function openProductActions(id, anchor) {
+function openProductActions(id, listId, anchor) {
   const product = db.pantry.products.find(entry => entry.id === id && !entry.deletedAt);
   if (!product) return;
   $('#quickActionsType').value = 'product';
   $('#quickActionsId').value = product.id;
+  $('#quickActionsItemId').value = listId || '';
   $('#quickActionsEyebrow').textContent = 'Produto';
   $('#quickActionsTitle').textContent = product.name;
   $('#quickStateBtn').hidden = true;
-  $('#quickEditBtn').innerHTML = iconSvg('edit-3') + 'Editar';
+  $('#quickEditBtn').hidden = true;
+  $('#quickHeaderEditBtn').hidden = false;
+  $('#quickHeaderEditBtn').innerHTML = iconSvg('edit-3') + 'Editar produto';
+  $('#quickEditOrderBtn').hidden = !listId;
+  $('#quickDeleteOrderBtn').hidden = !listId;
+  $('#quickEditOrderBtn').innerHTML = iconSvg('edit-3') + 'Editar pedido';
+  $('#quickDeleteOrderBtn').innerHTML = iconSvg('trash-2') + 'Excluir pedido';
   showQuickActionsMenu(anchor);
 }
 
@@ -1241,7 +1261,7 @@ function showQuickActionsMenu(anchor) {
   const menu = $('#quickActionsMenu');
   menu.hidden = false;
   const rect = anchor.getBoundingClientRect();
-  const menuWidth = 228;
+  const menuWidth = Math.min(300, window.innerWidth - 16);
   const left = Math.min(Math.max(8, rect.left), window.innerWidth - menuWidth - 8);
   const preferredTop = rect.bottom + 6;
   menu.style.left = `${left}px`;
@@ -1265,7 +1285,35 @@ function runQuickEditAction() {
   const id = $('#quickActionsId').value;
   closeQuickActionsMenu();
   if (type === 'expense') openRecordDialog('expense', id);
-  if (type === 'product') openProductDialog(id);
+}
+
+function runQuickProductEditAction() {
+  const id = $('#quickActionsId').value;
+  closeQuickActionsMenu();
+  if (id) openProductDialog(id);
+}
+
+function runQuickEditOrderAction() {
+  const id = $('#quickActionsItemId').value;
+  closeQuickActionsMenu();
+  if (id) openQuantityDialog(id);
+}
+
+function runQuickDeleteOrderAction() {
+  const id = $('#quickActionsItemId').value;
+  closeQuickActionsMenu();
+  if (id) deleteShoppingOrder(id);
+}
+
+function deleteShoppingOrder(id) {
+  const item = db.pantry.list.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item || !confirm(`Excluir o pedido de ${item.name}?`)) return;
+  visible(db.pantry.list)
+    .filter(entry => entry.productId === item.productId)
+    .forEach(entry => markDeleted(db.pantry.list, entry.id));
+  addAudit('excluiu', 'o pedido da feira', item.name);
+  saveData();
+  toast('Pedido excluído.', 'good');
 }
 
 function cycleRecordStatus(type, id) {
@@ -1456,6 +1504,7 @@ function openRegistryDialog(type) {
   $('#registryInput').placeholder = categories ? 'Frios; Secos; Hortifruti' : 'Amazon; Shopee; Mercado Livre';
   $('#registryInput').value = '';
   $('#registryEmojiWrap').hidden = !categories;
+  $('#registryForm').classList.toggle('is-sites', !categories);
   $('#registryEmojiInput').value = '📦';
   renderRegistryList();
   $('#registryDialog').showModal();
@@ -1605,6 +1654,25 @@ function defaultCategoryEmoji(name) {
 
 function parseRegistryValues(value) {
   return String(value || '').split(';').map(entry => entry.trim()).filter(Boolean);
+}
+
+function financeOwnerOptions(existingOwner = '') {
+  const names = ['Todos'];
+  [...(syncState.users || []), syncState.user]
+    .filter(Boolean)
+    .map(user => String(user.name || user.login || '').trim())
+    .filter(Boolean)
+    .forEach(name => {
+      if (!names.some(entry => normalizeText(entry) === normalizeText(name))) names.push(name);
+    });
+  if (existingOwner && existingOwner !== 'Casa' && !names.some(entry => normalizeText(entry) === normalizeText(existingOwner))) names.push(existingOwner);
+  return names.map(name => [name, name]);
+}
+
+function incomeCategoryLabel(value) {
+  const text = String(value || 'Receita').trim();
+  if (normalizeText(text) === 'salario') return 'Salário';
+  return capitalize(text);
 }
 
 function saveData(options = {}) {
@@ -2295,6 +2363,25 @@ async function installApp() {
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js').then(registration => registration.update()).catch(error => console.warn('Service worker', error));
+  }
+}
+
+async function forceAppUpdate() {
+  const button = $('#forceUpdateBtn');
+  button.disabled = true;
+  button.classList.add('is-updating');
+  toast('Verificando atualização...', 'good');
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter(key => key.startsWith('alo-financas-')).map(key => caches.delete(key)));
+    }
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(registration => registration.update()));
+    }
+  } finally {
+    window.location.reload();
   }
 }
 
