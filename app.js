@@ -1450,18 +1450,23 @@ async function syncRequest(action, payload = {}, urlOverride = '') {
     token: syncState.token,
     payload
   };
-  const response = await fetch(url, {
-    method: 'POST',
-    redirect: 'follow',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(body)
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    throw new Error('Nao consegui acessar o Apps Script. Confira se a URL termina em /exec, se a implantacao esta como Qualquer pessoa, se o script foi autorizado e se o app foi aberto por http/https.');
+  }
   const text = await response.text();
   let json;
   try {
     json = JSON.parse(text);
   } catch (error) {
-    throw new Error('Resposta invalida do servidor.');
+    throw new Error('Resposta invalida do servidor. Confira se voce colou a URL /exec da implantacao do Apps Script.');
   }
   if (!response.ok || json.ok === false) {
     const error = new Error(json.error || 'Falha na sincronizacao.');
