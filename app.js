@@ -1,8 +1,6 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.7';
+const APP_VERSION = '1.0.8';
 const STORAGE_KEY = 'alo_financas_db_v1';
-const SECURITY_KEY = 'alo_financas_security_v1';
-const SESSION_UNLOCK_KEY = 'alo_financas_unlocked_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
 const SYNC_TOKEN_KEY = 'alo_financas_sync_token_v1';
@@ -10,6 +8,7 @@ const SYNC_USER_KEY = 'alo_financas_sync_user_v1';
 const SYNC_REVISION_KEY = 'alo_financas_sync_revision_v1';
 const LAST_LOGIN_KEY = 'alo_financas_last_login_v1';
 const SYNC_DEBOUNCE_MS = 1800;
+const MARKET_REORDER_DELAY_MS = 10000;
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const DATE_LONG = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -40,6 +39,7 @@ const ICONS = {
   'layout-dashboard': '<rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path>',
   'log-in': '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><path d="m10 17 5-5-5-5"></path><path d="M15 12H3"></path>',
+  'log-out': '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path>',
   minus: '<path d="M5 12h14"></path>',
   package: '<path d="m7.5 4.3 9 5.2"></path><path d="M3.3 7 12 12l8.7-5"></path><path d="M12 22V12"></path><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path>',
   'package-check': '<path d="m7.5 4.3 9 5.2"></path><path d="M3.3 7 12 12l8.7-5"></path><path d="M12 22V12"></path><path d="M21 12.5V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l2-1.1"></path><path d="m16 19 2 2 4-4"></path>',
@@ -60,7 +60,9 @@ const ICONS = {
   x: '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>'
 };
 
-let db = normalizeDB(loadStoredDB());
+const storedDB = loadStoredDB();
+let db = normalizeDB(storedDB);
+const dataCleanupPending = JSON.stringify(storedDB) !== JSON.stringify(db);
 let state = {
   view: 'dashboard',
   month: currentMonth(),
@@ -70,9 +72,13 @@ let state = {
   productSearch: '',
   marketDraftQty: {},
   marketDraftUnit: {},
+  marketFrozenOrder: [],
+  marketReorderUntil: 0,
+  marketReorderTimer: null,
+  taskFilter: 'pending',
+  taskOwner: 'all',
   registryType: '',
-  deferredInstall: null,
-  idleTimer: null
+  deferredInstall: null
 };
 
 let syncState = {
@@ -83,8 +89,15 @@ let syncState = {
   revision: Number(sessionStorage.getItem(SYNC_REVISION_KEY) || 0),
   users: [],
   busy: false,
-  timer: null
+  timer: null,
+  pollTimer: null
 };
+
+if (dataCleanupPending) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  syncState.meta.localDirty = true;
+  saveSyncMeta();
+}
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -95,11 +108,11 @@ function init() {
   $('#syncUrlInput').value = syncState.settings.url || '';
   $('#syncOwnerLoginInput').value = syncState.settings.ownerLogin || 'lincoln';
   $('#syncLoginInput').value = localStorage.getItem(LAST_LOGIN_KEY) || syncState.settings.ownerLogin || 'lincoln';
+  $('#accessLoginInput').value = localStorage.getItem(LAST_LOGIN_KEY) || syncState.settings.ownerLogin || 'lincoln';
   render();
   registerServiceWorker();
   prepareInstallPrompt();
-  startIdleLock();
-  ensureUnlocked().then(() => initializeSync().catch(() => renderSyncStatus()));
+  initializeAccess().catch(() => renderSyncStatus());
 }
 
 function bindEvents() {
@@ -107,25 +120,28 @@ function bindEvents() {
   document.addEventListener('input', handleDocumentInput);
   document.addEventListener('change', handleDocumentChange);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') resetIdleLock();
+    if (document.visibilityState === 'visible' && syncState.user) checkRemoteRevision().catch(() => {});
   });
-
+  window.addEventListener('online', () => {
+    if (syncState.user) (syncState.meta.localDirty ? pushRemoteData(false, false) : checkRemoteRevision()).catch(() => {});
+  });
   $('#recordForm').addEventListener('submit', saveRecordFromForm);
+  $('#taskForm').addEventListener('submit', saveTaskFromForm);
   $('#productForm').addEventListener('submit', saveProductFromForm);
   $('#orderForm').addEventListener('submit', saveOrderFromForm);
   $('#quantityForm').addEventListener('submit', saveQuantityFromForm);
   $('#syncUserForm').addEventListener('submit', saveSyncUserFromForm);
   $('#registryForm').addEventListener('submit', saveRegistryEntry);
-  $('#pinForm').addEventListener('submit', handlePinSubmit);
+  $('#accessLoginForm').addEventListener('submit', handleAccessLogin);
   $('#syncSetupForm').addEventListener('submit', handleSyncSetup);
   $('#syncLoginForm').addEventListener('submit', handleSyncLogin);
   $('#importFileInput').addEventListener('change', handleImportFile);
-  $('#pinDialog').addEventListener('cancel', event => event.preventDefault());
+  $('#loginDialog').addEventListener('cancel', event => event.preventDefault());
 }
 
 function handleDocumentClick(event) {
   const quickMenu = $('#quickActionsMenu');
-  if (!quickMenu.hidden && !event.target.closest('#quickActionsMenu') && !event.target.closest('[data-record-actions], [data-product-actions]')) {
+  if (!quickMenu.hidden && !event.target.closest('#quickActionsMenu') && !event.target.closest('[data-record-actions], [data-product-actions], [data-task-actions]')) {
     closeQuickActionsMenu();
   }
   const button = event.target.closest('button');
@@ -174,7 +190,13 @@ function handleDocumentClick(event) {
 
   const recordActions = button.closest('[data-record-actions]');
   if (recordActions) {
-    openExpenseActions(recordActions.dataset.id, recordActions);
+    openRecordActions(recordActions.dataset.recordType || 'expense', recordActions.dataset.id, recordActions);
+    return;
+  }
+
+  const taskActions = button.closest('[data-task-actions]');
+  if (taskActions) {
+    openTaskActions(taskActions.dataset.id, taskActions);
     return;
   }
 
@@ -267,6 +289,8 @@ function handleDocumentClick(event) {
   if (button.id === 'prevMonthBtn') shiftMonth(-1);
   if (button.id === 'nextMonthBtn') shiftMonth(1);
   if (button.id === 'deleteRecordBtn') deleteCurrentRecord();
+  if (button.id === 'addTaskBtn') openTaskDialog();
+  if (button.id === 'deleteTaskBtn') deleteCurrentTask();
   if (button.id === 'deleteProductBtn') deleteCurrentProduct();
   if (button.id === 'openAuditBtn') $('#auditDialog').showModal();
   if (button.id === 'addSyncUserBtn') openSyncUserDialog();
@@ -290,7 +314,6 @@ function handleDocumentInput(event) {
     state.productSearch = event.target.value;
     renderShoppingList();
   }
-  resetIdleLock();
 }
 
 function handleDocumentChange(event) {
@@ -311,6 +334,16 @@ function handleDocumentChange(event) {
   if (event.target.id === 'marketCategoryFilter') {
     state.marketCategory = event.target.value || 'all';
     renderShoppingList();
+  }
+
+  if (event.target.id === 'taskStatusFilter') {
+    state.taskFilter = event.target.value || 'pending';
+    renderTasks();
+  }
+
+  if (event.target.id === 'taskOwnerFilter') {
+    state.taskOwner = event.target.value || 'all';
+    renderTasks();
   }
 
   if (event.target.matches('[data-category-emoji]')) {
@@ -342,6 +375,7 @@ function render() {
   renderDashboard();
   renderFinances();
   renderMarket();
+  renderTasks();
   renderSettings();
   renderSyncStatus();
 }
@@ -446,6 +480,61 @@ function renderDebtList() {
     : emptyState('Nenhuma dívida avulsa.');
 }
 
+function renderTasks() {
+  const ownerOptions = financeOwnerOptions();
+  const ownerSelect = $('#taskOwnerFilter');
+  ownerSelect.innerHTML = [['all', 'Todos']].concat(ownerOptions.filter(([value]) => value !== 'Todos'))
+    .map(([value, label]) => `<option value="${escapeAttr(value)}">${escapeHTML(label)}</option>`)
+    .join('');
+  if (![...ownerSelect.options].some(option => option.value === state.taskOwner)) state.taskOwner = 'all';
+  ownerSelect.value = state.taskOwner;
+  $('#taskStatusFilter').value = state.taskFilter;
+
+  const items = visible(db.tasks)
+    .filter(item => state.taskFilter === 'all' || (state.taskFilter === 'completed' ? item.status === 'completed' : item.status !== 'completed'))
+    .filter(item => state.taskOwner === 'all' || normalizeText(item.owner) === normalizeText(state.taskOwner))
+    .sort((a, b) => {
+      const completed = Number(a.status === 'completed') - Number(b.status === 'completed');
+      return completed || String(a.dueDate || '9999-12-31').localeCompare(String(b.dueDate || '9999-12-31')) || Number(priorityRank(b.priority)) - Number(priorityRank(a.priority));
+    });
+
+  $('#taskList').innerHTML = items.length
+    ? items.map(taskRow).join('')
+    : emptyState(state.taskFilter === 'completed' ? 'Nenhuma pendência concluída.' : 'Nada pendente por aqui.');
+}
+
+function taskRow(item) {
+  const visualState = taskVisualState(item);
+  const priority = taskPriorityLabel(item.priority);
+  const subtitle = `Prazo ${dateOrDash(item.dueDate)} · ${item.owner || 'Todos'}${item.priority === 'high' ? ` · ${priority}` : ''}`;
+  const statusText = item.status === 'completed' ? 'Concluída' : visualState === 'overdue' ? 'Atrasada' : 'Pendente';
+  return `
+    <div class="task-row task-${escapeAttr(visualState)}">
+      <button class="task-marker" type="button" data-task-actions data-id="${escapeAttr(item.id)}" title="Ações da pendência" aria-label="Abrir ações de ${escapeAttr(item.title)}">📌</button>
+      <div class="data-main">
+        <strong>${escapeHTML(item.title)}</strong>
+        <small>${escapeHTML(subtitle)}</small>
+        ${item.notes ? `<small class="task-note">${escapeHTML(item.notes)}</small>` : ''}
+      </div>
+      <span class="badge ${escapeAttr(visualState)}">${escapeHTML(statusText)}</span>
+    </div>
+  `;
+}
+
+function taskVisualState(item) {
+  if (item.status === 'completed') return 'completed';
+  if (item.dueDate && item.dueDate < dateStamp()) return 'overdue';
+  return 'pending';
+}
+
+function priorityRank(priority) {
+  return ({ low: 0, normal: 1, high: 2 })[priority] ?? 1;
+}
+
+function taskPriorityLabel(priority) {
+  return ({ low: 'Baixa', normal: 'Normal', high: 'Alta' })[priority] || 'Normal';
+}
+
 function renderMarket() {
   renderQuickOptions();
   renderShoppingList();
@@ -487,6 +576,16 @@ function renderShoppingList() {
     const statusB = b.item?.status || 'stocked';
     return (order[statusA] || 9) - (order[statusB] || 9) || a.product.name.localeCompare(b.product.name);
   });
+
+  if (Date.now() < state.marketReorderUntil && state.marketFrozenOrder.length) {
+    const frozenPosition = new Map(state.marketFrozenOrder.map((id, index) => [id, index]));
+    const naturalPosition = new Map(entries.map((entry, index) => [entry.product.id, index]));
+    entries.sort((a, b) => {
+      const positionA = frozenPosition.has(a.product.id) ? frozenPosition.get(a.product.id) : Number.MAX_SAFE_INTEGER;
+      const positionB = frozenPosition.has(b.product.id) ? frozenPosition.get(b.product.id) : Number.MAX_SAFE_INTEGER;
+      return positionA - positionB || naturalPosition.get(a.product.id) - naturalPosition.get(b.product.id);
+    });
+  }
 
   $('#shoppingList').innerHTML = entries.length
     ? entries.map(shoppingRow).join('')
@@ -543,6 +642,13 @@ function renderSyncStatus() {
     pill.textContent = 'Conflito';
     pill.className = 'status-pill badge debt';
     detail.textContent = 'Revise puxando ou enviando os dados.';
+    return;
+  }
+
+  if (syncState.meta.syncError) {
+    pill.textContent = 'Tentando novamente';
+    pill.className = 'status-pill';
+    detail.textContent = 'Os dados locais estão preservados.';
     return;
   }
 
@@ -636,17 +742,8 @@ function financeRow(type, item) {
   const amount = type === 'account' ? item.balance : item.amount;
   const amountDisplay = amount == null ? 'Definir valor' : formatMoney(amount);
   const subtitle = config.subtitle;
-  const cycle = type !== 'account' && type !== 'expense'
-    ? `<button class="icon-btn" type="button" title="${escapeAttr(config.cycleTitle)}" aria-label="${escapeAttr(config.cycleTitle)}" data-cycle-record="${type}" data-id="${escapeAttr(item.id)}">${iconSvg(config.cycleIcon)}</button>`
-    : '';
-  const leadingIcon = type === 'expense'
-    ? `<button class="row-icon expense-action-trigger ${expenseState}" type="button" data-record-actions data-id="${escapeAttr(item.id)}" title="Ações da despesa" aria-label="Abrir ações de ${escapeAttr(item.title)}">${iconSvg(config.icon)}</button>`
-    : `<span class="row-icon ${config.tone}">${iconSvg(config.icon)}</span>`;
-  const actions = type === 'expense' ? '' : `
-      <div class="row-actions">
-        ${cycle}
-        <button class="icon-btn" type="button" title="Editar" aria-label="Editar" data-edit-record="${type}" data-id="${escapeAttr(item.id)}">${iconSvg('edit-3')}</button>
-      </div>`;
+  const actionTone = type === 'expense' ? expenseState : config.tone;
+  const leadingIcon = `<button class="row-icon finance-action-trigger ${escapeAttr(actionTone)}" type="button" data-record-actions data-record-type="${escapeAttr(type)}" data-id="${escapeAttr(item.id)}" title="Ações" aria-label="Abrir ações de ${escapeAttr(config.title)}">${iconSvg(config.icon)}</button>`;
 
   return `
     <div class="data-row ${type === 'expense' ? `expense-row expense-${expenseState}` : ''}">
@@ -659,7 +756,6 @@ function financeRow(type, item) {
         <span class="${amount == null ? 'amount-empty' : ''}">${escapeHTML(amountDisplay)}</span>
         ${badge}
       </div>
-      ${actions}
     </div>
   `;
 }
@@ -745,7 +841,7 @@ function shoppingRow(entry) {
         <button class="quantity-tick" type="button" data-mark-product-needed="${escapeAttr(product.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>
       </div>`;
   return `
-    <article class="shopping-item status-${escapeAttr(status)}">
+    <article class="shopping-item status-${escapeAttr(status)}" data-product-id="${escapeAttr(product.id)}">
       <button class="product-emoji" type="button" data-product-actions data-id="${escapeAttr(product.id)}" data-list-id="${escapeAttr(item?.id || '')}" title="Ações de ${escapeAttr(product.name)}" aria-label="Abrir ações de ${escapeAttr(product.name)}">${productEmoji(product)}</button>
       <div class="data-main">
         <strong>${escapeHTML(product.name)}</strong>
@@ -974,6 +1070,86 @@ function deleteCurrentRecord() {
   toast('Registro excluído.', 'good');
 }
 
+function openTaskDialog(id = '') {
+  const item = id ? db.tasks.find(entry => entry.id === id && !entry.deletedAt) : null;
+  const ownerOptions = financeOwnerOptions(item?.owner || '');
+  $('#taskDialogTitle').textContent = item ? 'Editar pendência' : 'Nova pendência';
+  $('#taskId').value = item?.id || '';
+  $('#taskTitleInput').value = item?.title || '';
+  $('#taskDueDateInput').value = item?.dueDate || dateStamp();
+  $('#taskOwnerInput').innerHTML = ownerOptions
+    .map(([value, label]) => `<option value="${escapeAttr(value)}">${escapeHTML(label)}</option>`)
+    .join('');
+  $('#taskOwnerInput').value = item?.owner || syncState.user?.name || 'Todos';
+  if (!$('#taskOwnerInput').value) $('#taskOwnerInput').value = 'Todos';
+  $('#taskPriorityInput').value = item?.priority || 'normal';
+  $('#taskNotesInput').value = item?.notes || '';
+  $('#deleteTaskBtn').hidden = !item;
+  $('#taskDialog').showModal();
+  $('#taskTitleInput').focus();
+}
+
+function saveTaskFromForm(event) {
+  event.preventDefault();
+  const id = $('#taskId').value || uid('task');
+  const now = Date.now();
+  const existing = db.tasks.find(entry => entry.id === id);
+  const item = existing || { id, createdAt: now, status: 'pending', completedAt: 0, deletedAt: 0 };
+  item.title = $('#taskTitleInput').value.trim();
+  item.dueDate = $('#taskDueDateInput').value;
+  item.owner = $('#taskOwnerInput').value || 'Todos';
+  item.priority = $('#taskPriorityInput').value || 'normal';
+  item.notes = $('#taskNotesInput').value.trim();
+  item.updatedAt = now;
+  if (!existing) db.tasks.push(item);
+  addAudit(existing ? 'alterou' : 'cadastrou', 'a pendência', item.title);
+  saveData();
+  closeDialog('taskDialog');
+  toast('Pendência salva.', 'good');
+}
+
+function deleteCurrentTask() {
+  const id = $('#taskId').value;
+  const item = db.tasks.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item || !confirm(`Excluir a pendência "${item.title}"?`)) return;
+  markDeleted(db.tasks, id);
+  addAudit('excluiu', 'a pendência', item.title);
+  saveData();
+  closeDialog('taskDialog');
+  toast('Pendência excluída.', 'good');
+}
+
+function toggleTaskStatus(id) {
+  const item = db.tasks.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item) return;
+  const completed = item.status === 'completed';
+  item.status = completed ? 'pending' : 'completed';
+  item.completedAt = completed ? 0 : Date.now();
+  item.updatedAt = Date.now();
+  addAudit(completed ? 'reabriu' : 'concluiu', 'a pendência', item.title);
+  saveData();
+  toast(completed ? 'Pendência reaberta.' : 'Pendência concluída.', 'good');
+}
+
+function openTaskActions(id, anchor) {
+  const item = db.tasks.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item) return;
+  const completed = item.status === 'completed';
+  $('#quickActionsType').value = 'task';
+  $('#quickActionsId').value = item.id;
+  $('#quickActionsItemId').value = '';
+  $('#quickActionsEyebrow').textContent = 'Pendência';
+  $('#quickActionsTitle').textContent = item.title;
+  $('#quickStateBtn').hidden = false;
+  $('#quickHeaderEditBtn').hidden = true;
+  $('#quickEditBtn').hidden = false;
+  $('#quickEditOrderBtn').hidden = true;
+  $('#quickDeleteOrderBtn').hidden = true;
+  $('#quickStateBtn').innerHTML = iconSvg(completed ? 'undo' : 'check') + (completed ? 'Reabrir' : 'Concluir');
+  $('#quickEditBtn').innerHTML = iconSvg('edit-3') + 'Editar';
+  showQuickActionsMenu(anchor);
+}
+
 function openProductDialog(id = '') {
   const product = id ? db.pantry.products.find(item => item.id === id) : null;
   $('#productDialogTitle').textContent = product ? 'Editar produto' : 'Novo produto';
@@ -1097,6 +1273,7 @@ function addProductToShoppingList(productId, qty = '', unit = '') {
 function markProductNeeded(productId) {
   const product = db.pantry.products.find(item => item.id === productId && !item.deletedAt);
   if (!product) return toast('Produto não encontrado.', 'error');
+  freezeMarketOrder();
   const now = Date.now();
   let item = visible(db.pantry.list)
     .filter(entry => entry.productId === productId)
@@ -1228,6 +1405,7 @@ function setShoppingStatus(id, status) {
   if (!item) return;
   if (status === 'ordered') {
     if (item.status === 'ordered') {
+      freezeMarketOrder();
       item.status = 'needed';
       item.site = '';
       item.completionType = '';
@@ -1243,6 +1421,7 @@ function setShoppingStatus(id, status) {
   }
 
   if (status === 'bought' && item.status === 'bought') {
+    freezeMarketOrder();
     item.status = 'needed';
     item.site = '';
     item.completionType = '';
@@ -1255,6 +1434,7 @@ function setShoppingStatus(id, status) {
   }
 
   const previousStatus = item.status;
+  freezeMarketOrder();
   item.status = status;
   item.updatedAt = Date.now();
   if (status === 'bought') {
@@ -1279,6 +1459,7 @@ function saveOrderFromForm(event) {
   event.preventDefault();
   const item = db.pantry.list.find(entry => entry.id === $('#orderItemId').value);
   if (!item) return;
+  freezeMarketOrder();
   item.site = $('#orderSiteInput').value.trim();
   item.status = 'ordered';
   item.completionType = '';
@@ -1290,20 +1471,33 @@ function saveOrderFromForm(event) {
   toast('Pedido registrado.', 'good');
 }
 
-function openExpenseActions(id, anchor) {
-  const item = db.finances.expenses.find(entry => entry.id === id && !entry.deletedAt);
+function freezeMarketOrder() {
+  const currentOrder = $$('#shoppingList .shopping-item[data-product-id]').map(row => row.dataset.productId).filter(Boolean);
+  if (currentOrder.length) state.marketFrozenOrder = currentOrder;
+  state.marketReorderUntil = Date.now() + MARKET_REORDER_DELAY_MS;
+  clearTimeout(state.marketReorderTimer);
+  state.marketReorderTimer = setTimeout(() => {
+    state.marketReorderUntil = 0;
+    state.marketFrozenOrder = [];
+    renderShoppingList();
+  }, MARKET_REORDER_DELAY_MS);
+}
+
+function openRecordActions(type, id, anchor) {
+  const item = getCollection(type)?.find(entry => entry.id === id && !entry.deletedAt);
   if (!item) return;
-  $('#quickActionsType').value = 'expense';
+  const config = rowConfig(type, item);
+  $('#quickActionsType').value = type;
   $('#quickActionsId').value = item.id;
   $('#quickActionsItemId').value = '';
-  $('#quickActionsEyebrow').textContent = 'Despesa';
-  $('#quickActionsTitle').textContent = item.title;
-  $('#quickStateBtn').hidden = false;
+  $('#quickActionsEyebrow').textContent = ({ expense: 'Despesa', income: 'Receita', account: 'Conta ou reserva', receivable: 'A receber', debt: 'Dívida' })[type] || 'Registro';
+  $('#quickActionsTitle').textContent = config.title;
+  $('#quickStateBtn').hidden = type === 'account';
   $('#quickHeaderEditBtn').hidden = true;
   $('#quickEditBtn').hidden = false;
   $('#quickEditOrderBtn').hidden = true;
   $('#quickDeleteOrderBtn').hidden = true;
-  $('#quickStateBtn').innerHTML = iconSvg(item.status === 'paid' ? 'undo' : 'check') + escapeHTML(item.status === 'paid' ? 'Desfazer pagamento' : 'Marcar como pago');
+  if (type !== 'account') $('#quickStateBtn').innerHTML = iconSvg(config.cycleIcon) + escapeHTML(config.cycleTitle);
   $('#quickEditBtn').innerHTML = iconSvg('edit-3') + 'Editar';
   showQuickActionsMenu(anchor);
 }
@@ -1345,8 +1539,9 @@ function closeQuickActionsMenu() {
 function runQuickStateAction() {
   const type = $('#quickActionsType').value;
   const id = $('#quickActionsId').value;
-  if (type !== 'expense') return;
-  cycleRecordStatus('expense', id);
+  if (type === 'task') toggleTaskStatus(id);
+  else if (['expense', 'income', 'receivable', 'debt'].includes(type)) cycleRecordStatus(type, id);
+  else return;
   closeQuickActionsMenu();
 }
 
@@ -1354,7 +1549,8 @@ function runQuickEditAction() {
   const type = $('#quickActionsType').value;
   const id = $('#quickActionsId').value;
   closeQuickActionsMenu();
-  if (type === 'expense') openRecordDialog('expense', id);
+  if (type === 'task') openTaskDialog(id);
+  else if (['expense', 'income', 'account', 'receivable', 'debt'].includes(type)) openRecordDialog(type, id);
 }
 
 function runQuickProductEditAction() {
@@ -1782,7 +1978,7 @@ function defaultDB() {
     ['Papel higiênico', 'Higiene', 1, 'pct'],
     ['Sabão em pó', 'Limpeza', 1, 'un']
   ].map(([name, category, defaultQty, unit]) => ({
-    id: uid('product'),
+    id: `product-${normalizeText(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`,
     name,
     category,
     defaultQty,
@@ -1809,12 +2005,13 @@ function defaultDB() {
       incomes: [],
       recurring: [],
       accounts: [
-        { id: uid('account'), name: 'Conta', type: 'Conta corrente', balance: 0, notes: '', createdAt: now, updatedAt: now },
-        { id: uid('account'), name: 'Poupança', type: 'Poupança', balance: 0, notes: '', createdAt: now, updatedAt: now }
+        { id: 'account-conta', name: 'Conta', type: 'Conta corrente', balance: 0, notes: '', createdAt: now, updatedAt: now },
+        { id: 'account-poupanca', name: 'Poupança', type: 'Poupança', balance: 0, notes: '', createdAt: now, updatedAt: now }
       ],
       receivables: [],
       debts: []
     },
+    tasks: [],
     pantry: {
       categories: DEFAULT_MARKET_CATEGORIES.slice(),
       categoryMeta,
@@ -1844,6 +2041,7 @@ function normalizeDB(input) {
   ['products', 'list'].forEach(key => {
     normalized.pantry[key] = Array.isArray(normalized.pantry[key]) ? normalized.pantry[key].map(normalizeItem) : [];
   });
+  normalized.tasks = Array.isArray(normalized.tasks) ? normalized.tasks.map(normalizeItem) : [];
   normalized.pantry.categories = Array.isArray(normalized.pantry.categories) ? normalized.pantry.categories : DEFAULT_MARKET_CATEGORIES.slice();
   const rawCategoryMeta = Array.isArray(data.pantry?.categoryMeta)
     ? data.pantry.categoryMeta
@@ -1858,7 +2056,7 @@ function normalizeDB(input) {
   normalized.pantry.categories = Array.from(new Set(normalized.pantry.categories.concat(normalized.pantry.categoryMeta.map(entry => entry.name))));
   normalized.pantry.sites = Array.isArray(normalized.pantry.sites) ? normalized.pantry.sites : [];
   normalized.audit = Array.isArray(normalized.audit) ? normalized.audit.map(normalizeItem) : [];
-  return normalized;
+  return normalizeLogicalDuplicates(normalized);
 }
 
 function normalizeItem(item) {
@@ -1871,126 +2069,70 @@ function normalizeItem(item) {
   };
 }
 
-async function ensureUnlocked() {
-  const security = loadSecurity();
-  if (!security.hash) {
-    showPinDialog('create');
-    return false;
+async function initializeAccess() {
+  if (!syncEnabled()) {
+    renderSyncStatus();
+    return;
   }
-  if (sessionStorage.getItem(SESSION_UNLOCK_KEY) === '1') return true;
-  showPinDialog('unlock');
-  return false;
-}
-
-function showPinDialog(mode) {
-  const security = loadSecurity();
-  $('#pinMode').value = mode;
-  $('#pinError').hidden = true;
-  $('#pinError').textContent = '';
-  $('#pinInput').value = '';
-  $('#pinConfirmInput').value = '';
-  $('#currentPinInput').value = '';
-  $('#currentPinWrap').hidden = mode !== 'change';
-  $('#pinConfirmWrap').hidden = mode === 'unlock';
-  $('#pinLabel').textContent = mode === 'unlock' ? 'PIN deste aparelho' : 'Novo PIN local';
-  $('#pinTitle').textContent = mode === 'create' ? 'Proteger este aparelho' : mode === 'change' ? 'Trocar PIN local' : 'Desbloquear';
-  $('#pinSubmitBtn').textContent = mode === 'unlock' ? 'Desbloquear' : 'Salvar PIN';
-  $('#pinDialog').showModal();
-  setTimeout(() => (mode === 'change' ? $('#currentPinInput') : $('#pinInput')).focus(), 50);
-  if (mode !== 'create' && !security.hash) showPinDialog('create');
-}
-
-async function handlePinSubmit(event) {
-  event.preventDefault();
-  const mode = $('#pinMode').value;
-  const security = loadSecurity();
-  const pin = $('#pinInput').value.trim();
-  const confirmPin = $('#pinConfirmInput').value.trim();
-  const currentPin = $('#currentPinInput').value.trim();
-
   try {
-    if (mode === 'unlock') {
-      if (!(await verifyPin(pin, security))) throw new Error('PIN incorreto.');
-      unlockSession();
-      closeDialog('pinDialog');
-      initializeSync().catch(() => renderSyncStatus());
+    const status = await syncRequest('status');
+    syncState.meta.initialized = status.initialized === true;
+    syncState.meta.serverTime = status.serverTime || 0;
+    saveSyncMeta();
+    if (!syncState.meta.initialized) {
+      setView('settings');
       return;
     }
-
-    if (mode === 'change' && !(await verifyPin(currentPin, security))) throw new Error('PIN atual incorreto.');
-    if (!/^\d{4,8}$/.test(pin)) throw new Error('Use de 4 a 8 numeros.');
-    if (pin !== confirmPin) throw new Error('A confirmacao nao confere.');
-    const salt = cryptoRandom();
-    const hash = await hashPin(pin, salt);
-    saveSecurity({ ...security, salt, hash, updatedAt: Date.now() });
-    unlockSession();
-    closeDialog('pinDialog');
-    renderSettings();
-    toast('PIN salvo.', 'good');
+    if (!syncState.token || !syncState.user) {
+      showLoginDialog();
+      return;
+    }
+    await initializeSync();
   } catch (error) {
-    $('#pinError').textContent = error.message;
-    $('#pinError').hidden = false;
+    console.warn('Access initialization failed', error);
+    renderSyncStatus();
   }
 }
 
-function unlockSession() {
-  sessionStorage.setItem(SESSION_UNLOCK_KEY, '1');
-  resetIdleLock();
+function showLoginDialog() {
+  $('#accessLoginInput').value = localStorage.getItem(LAST_LOGIN_KEY) || syncState.settings.ownerLogin || '';
+  $('#accessPasswordInput').value = '';
+  $('#accessLoginError').hidden = true;
+  $('#accessLoginError').textContent = '';
+  if (!$('#loginDialog').open) $('#loginDialog').showModal();
+  setTimeout(() => ($('#accessLoginInput').value ? $('#accessPasswordInput') : $('#accessLoginInput')).focus(), 50);
 }
 
-function lockApp() {
-  sessionStorage.removeItem(SESSION_UNLOCK_KEY);
-  showPinDialog('unlock');
+async function handleAccessLogin(event) {
+  event.preventDefault();
+  const login = $('#accessLoginInput').value.trim().toLowerCase();
+  const password = $('#accessPasswordInput').value.trim();
+  try {
+    await authenticateSync(login, password);
+    $('#accessPasswordInput').value = '';
+    closeDialog('loginDialog');
+    toast('Bem-vindo de volta.', 'good');
+  } catch (error) {
+    $('#accessLoginError').textContent = error.message || 'Não foi possível entrar.';
+    $('#accessLoginError').hidden = false;
+  }
 }
 
-function loadSecurity() {
-  return {
-    salt: '',
-    hash: '',
-    lockAfterMinutes: 15,
-    ...readJSON(localStorage.getItem(SECURITY_KEY), {})
-  };
-}
-
-function saveSecurity(security) {
-  localStorage.setItem(SECURITY_KEY, JSON.stringify(security));
-}
-
-async function verifyPin(pin, security) {
-  if (!security.hash || !security.salt) return false;
-  const hash = await hashPin(pin, security.salt);
-  return hash === security.hash;
-}
-
-async function hashPin(pin, salt) {
-  if (!window.crypto?.subtle) throw new Error('Criptografia indisponivel neste navegador.');
-  const bytes = new TextEncoder().encode(`${salt}:${pin}`);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return arrayBufferToBase64(digest);
-}
-
-function cryptoRandom() {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function startIdleLock() {
-  ['pointerdown', 'keydown', 'touchstart'].forEach(eventName => document.addEventListener(eventName, resetIdleLock, { passive: true }));
-  resetIdleLock();
-}
-
-function resetIdleLock() {
-  clearTimeout(state.idleTimer);
-  const security = loadSecurity();
-  if (!security.hash || sessionStorage.getItem(SESSION_UNLOCK_KEY) !== '1') return;
-  state.idleTimer = setTimeout(() => {
-    if (document.visibilityState === 'visible') lockApp();
-  }, Number(security.lockAfterMinutes || 15) * 60 * 1000);
+async function authenticateSync(login, password) {
+  if (!syncEnabled()) throw new Error('Configure a sincronização primeiro.');
+  if (!login || !password) throw new Error('Informe login e senha.');
+  const payload = await syncRequest('login', { login, pin: password });
+  applyAuthPayload(payload);
+  localStorage.setItem(LAST_LOGIN_KEY, login);
+  $('#syncLoginInput').value = login;
+  await pullRemoteData({ merge: true, notify: false });
+  await refreshSyncUsers();
+  startSyncPolling();
+  render();
 }
 
 async function initializeSync() {
-  if (!syncEnabled() || sessionStorage.getItem(SESSION_UNLOCK_KEY) !== '1') {
+  if (!syncEnabled()) {
     renderSyncStatus();
     return;
   }
@@ -2002,9 +2144,18 @@ async function initializeSync() {
     if (syncState.token && syncState.user) {
       await checkRemoteRevision();
       await refreshSyncUsers();
+      syncState.meta.conflict = false;
+      syncState.meta.syncError = '';
+      saveSyncMeta();
+      startSyncPolling();
+      if (syncState.meta.localDirty) await pushRemoteData(false, false);
     }
   } catch (error) {
     console.warn('Sync status failed', error);
+    if (/entre novamente|sess[aã]o|acesso removido/i.test(error.message || '')) {
+      clearAuthSession();
+      showLoginDialog();
+    }
   } finally {
     renderSyncStatus();
   }
@@ -2026,7 +2177,7 @@ async function handleSyncSetup(event) {
     const status = await syncRequest('status', {}, url);
     if (!status.initialized) {
       const ownerPin = $('#syncOwnerPinInput').value.trim();
-      if (!/^\d{4,8}$/.test(ownerPin)) throw new Error('Use um PIN de 4 a 8 numeros.');
+      if (!/^\d{4,8}$/.test(ownerPin)) throw new Error('Use uma senha numérica de 4 a 8 dígitos.');
       const payload = await syncRequest('bootstrap', {
         installationKey: $('#syncInstallKeyInput').value.trim(),
         ownerName: $('#syncOwnerNameInput').value.trim() || 'Lincoln',
@@ -2045,7 +2196,10 @@ async function handleSyncSetup(event) {
     }
     $('#syncInstallKeyInput').value = '';
     $('#syncOwnerPinInput').value = '';
-    if (syncState.user) await refreshSyncUsers();
+    if (syncState.user) {
+      await refreshSyncUsers();
+      startSyncPolling();
+    }
     renderSyncStatus();
     toast('Sincronização configurada.', 'good');
   } catch (error) {
@@ -2057,15 +2211,12 @@ async function handleSyncLogin(event) {
   event.preventDefault();
   if (!syncEnabled()) return toast('Configure a URL primeiro.', 'error');
   const login = $('#syncLoginInput').value.trim().toLowerCase();
-  const pin = $('#syncPinInput').value.trim();
-  if (!login || !pin) return toast('Informe login e PIN.', 'error');
+  const password = $('#syncPinInput').value.trim();
+  if (!login || !password) return toast('Informe login e senha.', 'error');
   try {
-    const payload = await syncRequest('login', { login, pin });
-    applyAuthPayload(payload);
-    localStorage.setItem(LAST_LOGIN_KEY, login);
+    await authenticateSync(login, password);
     $('#syncPinInput').value = '';
-    await pullRemoteData({ merge: true, notify: false });
-    await refreshSyncUsers();
+    if ($('#loginDialog').open) closeDialog('loginDialog');
     toast('Login feito.', 'good');
   } catch (error) {
     toast(error.message || 'Login falhou.', 'error');
@@ -2111,6 +2262,7 @@ async function pushRemoteData(force = false, notify = false) {
     sessionStorage.setItem(SYNC_REVISION_KEY, String(syncState.revision));
     syncState.meta.localDirty = false;
     syncState.meta.conflict = false;
+    syncState.meta.syncError = '';
     syncState.meta.lastSyncAt = Date.now();
     saveSyncMeta();
     if (notify) toast('Dados enviados.', 'good');
@@ -2121,9 +2273,12 @@ async function pushRemoteData(force = false, notify = false) {
       if (notify) toast('Dados mesclados e enviados.', 'good');
       return true;
     }
-    syncState.meta.conflict = true;
+    syncState.meta.syncError = error.message || 'Falha ao enviar.';
+    syncState.meta.conflict = false;
     saveSyncMeta();
-    if (notify) toast(error.message || 'Falha ao enviar.', 'error');
+    clearTimeout(syncState.timer);
+    syncState.timer = setTimeout(() => pushRemoteData(false, false), 8000);
+    if (notify) toast(syncState.meta.syncError, 'error');
     return false;
   } finally {
     syncState.busy = false;
@@ -2143,6 +2298,7 @@ async function resolveSyncConflict() {
   sessionStorage.setItem(SYNC_REVISION_KEY, String(syncState.revision));
   syncState.meta.localDirty = false;
   syncState.meta.conflict = false;
+  syncState.meta.syncError = '';
   syncState.meta.lastSyncAt = Date.now();
   saveSyncMeta();
   render();
@@ -2155,16 +2311,26 @@ async function pullRemoteData(options = {}) {
   try {
     const payload = await syncRequest('pull');
     const incoming = normalizeDB(payload.data);
-    db = merge ? mergeDB(incoming, db) : incoming;
+    const nextDB = merge ? mergeDB(incoming, db) : incoming;
+    const mergeChangedRemote = merge && comparableData(nextDB) !== comparableData(incoming);
+    db = nextDB;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
     syncState.revision = Number(payload.revision || syncState.revision || 0);
     sessionStorage.setItem(SYNC_REVISION_KEY, String(syncState.revision));
-    syncState.meta.localDirty = merge ? syncState.meta.localDirty : false;
+    syncState.meta.localDirty = merge ? syncState.meta.localDirty || mergeChangedRemote : false;
     syncState.meta.conflict = false;
+    syncState.meta.syncError = '';
     syncState.meta.lastSyncAt = Date.now();
     saveSyncMeta();
+    if (merge && syncState.meta.localDirty) {
+      const saved = await syncRequest('save', { data: db, baseRevision: syncState.revision, force: true });
+      syncState.revision = Number(saved.revision || syncState.revision || 0);
+      sessionStorage.setItem(SYNC_REVISION_KEY, String(syncState.revision));
+      syncState.meta.localDirty = false;
+      syncState.meta.lastSyncAt = Date.now();
+      saveSyncMeta();
+    }
     render();
-    if (merge && syncState.meta.localDirty) await pushRemoteData(true, false);
     if (notify) toast('Dados atualizados.', 'good');
     return true;
   } catch (error) {
@@ -2179,9 +2345,18 @@ async function pullRemoteData(options = {}) {
 async function checkRemoteRevision() {
   if (!syncEnabled() || !syncState.user || syncState.busy) return;
   const status = await syncRequest('check');
-  if (Number(status.revision || 0) > syncState.revision && !syncState.meta.localDirty) {
-    await pullRemoteData({ merge: false, notify: false });
+  if (Number(status.revision || 0) > syncState.revision) {
+    if (syncState.meta.localDirty) await pushRemoteData(false, false);
+    else await pullRemoteData({ merge: false, notify: false });
   }
+}
+
+function startSyncPolling() {
+  clearInterval(syncState.pollTimer);
+  if (!syncEnabled() || !syncState.user) return;
+  syncState.pollTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') checkRemoteRevision().catch(() => {});
+  }, 20000);
 }
 
 async function syncRequest(action, payload = {}, urlOverride = '') {
@@ -2228,8 +2403,9 @@ function applyAuthPayload(payload) {
   sessionStorage.setItem(SYNC_REVISION_KEY, String(syncState.revision));
 }
 
-function logoutSync() {
-  if (syncState.token && syncEnabled()) syncRequest('logout').catch(() => {});
+function clearAuthSession() {
+  clearInterval(syncState.pollTimer);
+  syncState.pollTimer = null;
   syncState.token = '';
   syncState.user = null;
   syncState.users = [];
@@ -2237,9 +2413,24 @@ function logoutSync() {
   sessionStorage.removeItem(SYNC_TOKEN_KEY);
   sessionStorage.removeItem(SYNC_USER_KEY);
   sessionStorage.removeItem(SYNC_REVISION_KEY);
+}
+
+function logoutSync() {
+  if (!syncEnabled()) {
+    setView('settings');
+    toast('Configure o acesso compartilhado primeiro.', 'error');
+    return;
+  }
+  if (syncState.token && syncEnabled()) syncRequest('logout').catch(() => {});
+  clearAuthSession();
   renderSyncStatus();
   renderSyncUsers();
-  toast('Sync desconectado.', 'good');
+  showLoginDialog();
+  toast('Você saiu.', 'good');
+}
+
+function lockApp() {
+  logoutSync();
 }
 
 async function refreshSyncUsers() {
@@ -2269,7 +2460,7 @@ function openSyncUserDialog(login = '') {
   $('#syncUserLoginInput').disabled = Boolean(user);
   $('#syncUserPinInput').value = '';
   $('#syncUserPinInput').required = !user;
-  $('#syncUserPinInput').placeholder = user ? 'Deixe vazio para manter o PIN' : '';
+  $('#syncUserPinInput').placeholder = user ? 'Deixe vazio para manter a senha' : '';
   $('#saveSyncUserBtn').innerHTML = iconSvg(user ? 'check' : 'plus') + (user ? 'Salvar alterações' : 'Cadastrar');
   $('#deleteSyncUserBtn').hidden = !user || user.login === syncState.user.login || user.role === 'owner';
   $('#syncUserDialog').showModal();
@@ -2284,7 +2475,7 @@ async function saveSyncUserFromForm(event) {
   const login = ($('#syncUserEditingLogin').value || $('#syncUserLoginInput').value).trim().toLowerCase();
   const pin = $('#syncUserPinInput').value.trim();
   if (!name || !/^[a-z0-9._-]{3,40}$/.test(login)) return toast('Informe nome e login válidos.', 'error');
-  if ((!editing || pin) && !/^\d{4,8}$/.test(pin)) return toast('Use um PIN de 4 a 8 números.', 'error');
+  if ((!editing || pin) && !/^\d{4,8}$/.test(pin)) return toast('Use uma senha numérica de 4 a 8 dígitos.', 'error');
   try {
     const payload = await syncRequest('upsertUser', { name, login, pin });
     syncState.users = Array.isArray(payload.users) ? payload.users : syncState.users;
@@ -2328,10 +2519,17 @@ function loadSyncMeta() {
     initialized: false,
     localDirty: false,
     conflict: false,
+    syncError: '',
     lastSyncAt: 0,
     serverTime: 0,
     ...readJSON(localStorage.getItem(SYNC_META_KEY), {})
   };
+}
+
+function comparableData(data) {
+  const copy = clone(data);
+  copy.updatedAt = 0;
+  return JSON.stringify(copy);
 }
 
 function saveSyncMeta() {
@@ -2347,6 +2545,7 @@ function mergeDB(remote, local) {
   merged.finances.accounts = mergeArray(remote.finances.accounts, local.finances.accounts);
   merged.finances.receivables = mergeArray(remote.finances.receivables, local.finances.receivables);
   merged.finances.debts = mergeArray(remote.finances.debts, local.finances.debts);
+  merged.tasks = mergeArray(remote.tasks, local.tasks);
   merged.pantry.products = mergeArray(remote.pantry.products, local.pantry.products);
   merged.pantry.list = mergeArray(remote.pantry.list, local.pantry.list);
   merged.audit = mergeArray(remote.audit, local.audit);
@@ -2354,7 +2553,7 @@ function mergeDB(remote, local) {
   merged.pantry.categories = Array.from(new Set([...(remote.pantry.categories || []), ...(local.pantry.categories || [])]));
   merged.pantry.sites = Array.from(new Set([...(remote.pantry.sites || []), ...(local.pantry.sites || [])]));
   merged.updatedAt = Math.max(Number(remote.updatedAt || 0), Number(local.updatedAt || 0), Date.now());
-  return merged;
+  return normalizeLogicalDuplicates(merged);
 }
 
 function mergeArray(remoteItems = [], localItems = []) {
@@ -2363,6 +2562,107 @@ function mergeArray(remoteItems = [], localItems = []) {
     if (!item?.id) return;
     const previous = map.get(item.id);
     if (!previous || itemStamp(item) >= itemStamp(previous)) map.set(item.id, clone(item));
+  });
+  return Array.from(map.values());
+}
+
+function normalizeLogicalDuplicates(data) {
+  if (!data?.pantry) return data;
+  const accountGroups = new Map();
+  const deletedAccounts = [];
+  const accountIdMap = new Map();
+  (data.finances?.accounts || []).forEach(rawAccount => {
+    const account = clone(rawAccount);
+    if (account.deletedAt) {
+      deletedAccounts.push(account);
+      return;
+    }
+    const key = normalizeText(account.name) || account.id;
+    const group = accountGroups.get(key) || [];
+    group.push(account);
+    accountGroups.set(key, group);
+  });
+  const accounts = [];
+  accountGroups.forEach(group => {
+    group.sort((a, b) => accountRecordScore(b) - accountRecordScore(a) || itemStamp(b) - itemStamp(a));
+    const canonical = clone(group[0]);
+    canonical.updatedAt = Math.max(...group.map(itemStamp));
+    group.forEach(account => accountIdMap.set(account.id, canonical.id));
+    accounts.push(canonical);
+  });
+  data.finances.accounts = deletedAccounts.concat(accounts);
+  ['expenses', 'incomes', 'recurring'].forEach(collection => {
+    (data.finances[collection] || []).forEach(item => {
+      if (item.accountId) item.accountId = accountIdMap.get(item.accountId) || item.accountId;
+    });
+  });
+
+  const activeProducts = new Map();
+  const deletedProducts = [];
+  const productIdMap = new Map();
+
+  (data.pantry.products || []).forEach(rawProduct => {
+    const product = clone(rawProduct);
+    if (product.deletedAt) {
+      deletedProducts.push(product);
+      return;
+    }
+    const key = normalizeText(product.name) || product.id;
+    const group = activeProducts.get(key) || [];
+    group.push(product);
+    activeProducts.set(key, group);
+  });
+
+  const products = [];
+  activeProducts.forEach(group => {
+    group.sort((a, b) => productRecordScore(b) - productRecordScore(a) || itemStamp(b) - itemStamp(a));
+    const canonical = clone(group[0]);
+    ['category', 'unit', 'units', 'goodBrands', 'badBrands', 'sites', 'notes'].forEach(field => {
+      if (!canonical[field]) canonical[field] = group.find(item => item[field])?.[field] || '';
+    });
+    if (!(Number(canonical.defaultQty) > 0)) canonical.defaultQty = Number(group.find(item => Number(item.defaultQty) > 0)?.defaultQty || 1);
+    canonical.updatedAt = Math.max(...group.map(itemStamp));
+    group.forEach(product => productIdMap.set(product.id, canonical.id));
+    products.push(canonical);
+  });
+  data.pantry.products = deletedProducts.concat(products);
+
+  const deletedListItems = [];
+  const activeListItems = new Map();
+  (data.pantry.list || []).forEach(rawItem => {
+    const item = clone(rawItem);
+    item.productId = productIdMap.get(item.productId) || item.productId;
+    if (item.deletedAt) {
+      deletedListItems.push(item);
+      return;
+    }
+    const key = item.productId || normalizeText(item.name) || item.id;
+    const previous = activeListItems.get(key);
+    if (!previous || itemStamp(item) >= itemStamp(previous)) activeListItems.set(key, item);
+  });
+  data.pantry.list = deletedListItems.concat(Array.from(activeListItems.values()));
+  data.pantry.categories = dedupeTextValues(data.pantry.categories || []);
+  data.pantry.sites = dedupeTextValues(data.pantry.sites || []);
+  return data;
+}
+
+function accountRecordScore(account) {
+  return (String(account.id || '').includes('_') ? 4 : 0)
+    + (Number(account.balance || 0) !== 0 ? 8 : 0)
+    + (account.notes ? 2 : 0);
+}
+
+function productRecordScore(product) {
+  return (String(product.id || '').includes('_') ? 4 : 0)
+    + ['units', 'goodBrands', 'badBrands', 'sites', 'notes'].filter(field => product[field]).length;
+}
+
+function dedupeTextValues(values) {
+  const map = new Map();
+  values.forEach(value => {
+    const clean = String(value || '').trim();
+    const key = normalizeText(clean);
+    if (clean && !map.has(key)) map.set(key, clean);
   });
   return Array.from(map.values());
 }

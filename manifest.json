@@ -1,7 +1,7 @@
 {
   "name": "Alô Finanças",
   "short_name": "AloFin",
-  "description": "Finanças da casa, reservas, contas mensais e lista de feira.",
+  "description": "Finanças da casa, pendências e lista de feira compartilhada.",
   "start_url": "index.html",
   "scope": "./",
   "display": "standalone",

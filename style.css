@@ -2916,6 +2916,194 @@ body {
 
   .dashboard-today {
     max-width: 48%;
-    font-size: 0.72rem;
+    font-size: 0.86rem;
+  }
+}
+
+/* Interface refinements for 1.0.8 */
+.dashboard-today {
+  font-size: 1.02rem;
+  line-height: 1.2;
+}
+
+.finances-heading {
+  align-items: center;
+}
+
+.finances-heading h2 {
+  margin-top: 0;
+}
+
+.finance-action-trigger {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.finance-action-trigger.paid {
+  color: #17603f;
+  border-color: #a9d4ba;
+  background: #d7f0e1;
+}
+
+.finance-action-trigger.pending {
+  color: #7b490f;
+  border-color: #e5bf83;
+  background: #ffe9c5;
+}
+
+.finance-action-trigger.overdue {
+  color: #862f2f;
+  border-color: #e3aaa7;
+  background: #f9d8d6;
+}
+
+.compact-list .data-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.compact-list .row-icon {
+  display: grid;
+}
+
+.tasks-heading {
+  align-items: center;
+}
+
+.tasks-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.task-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 14px;
+}
+
+.task-filter-row .filter-select {
+  width: min(190px, 100%);
+}
+
+.task-list {
+  display: grid;
+  gap: 8px;
+}
+
+.task-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-height: 64px;
+  padding: 9px 11px;
+  border: 1px solid #dfc48f;
+  border-left: 4px solid var(--amber);
+  border-radius: 8px;
+  background: #fff8ec;
+}
+
+.task-row.task-overdue {
+  border-color: #e8b5b1;
+  border-left-color: var(--red);
+  background: #fff0ef;
+}
+
+.task-row.task-completed {
+  border-color: #acd4bc;
+  border-left-color: var(--green);
+  background: #edf8f1;
+}
+
+.task-marker {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  border: 1px solid rgba(111, 79, 27, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 1.1rem;
+}
+
+.task-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge.completed {
+  color: #17603f;
+  background: #d7f0e1;
+}
+
+.bottom-nav {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: min(760px, calc(100vw - 24px));
+}
+
+.bottom-nav button[data-view="tasks"].is-active {
+  color: #7a4d13;
+  background: #fff0d7;
+}
+
+.bottom-nav button[data-view="tasks"].is-active::after {
+  background: var(--amber);
+}
+
+.bottom-nav button {
+  min-width: 0;
+}
+
+.sign-out-btn {
+  color: var(--brand-strong);
+}
+
+@media (max-width: 760px) {
+  .finances-heading {
+    align-items: stretch;
+  }
+
+  .task-filter-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .task-filter-row .filter-select {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboard-today {
+    font-size: 0.86rem;
+  }
+
+  .task-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .task-row > .badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .bottom-nav {
+    width: calc(100vw - 16px);
+    gap: 2px;
+    padding: 5px;
+  }
+
+  .bottom-nav button {
+    padding-inline: 2px;
+    font-size: 0.58rem;
   }
 }

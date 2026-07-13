@@ -22,7 +22,7 @@
 
       <div class="topbar-actions">
         <button class="icon-btn" type="button" id="installBtn" title="Instalar app" aria-label="Instalar app" hidden data-icon="download"></button>
-        <button class="icon-btn" type="button" id="lockBtn" title="Bloquear" aria-label="Bloquear" data-icon="lock"></button>
+        <button class="icon-btn sign-out-btn" type="button" id="lockBtn" title="Sair" aria-label="Sair e exigir a senha novamente" data-icon="log-out"></button>
       </div>
     </header>
 
@@ -63,7 +63,7 @@
       </section>
 
       <section class="view" id="view-finances" aria-labelledby="financesTitle" hidden>
-        <div class="view-heading">
+        <div class="view-heading finances-heading">
           <div>
             <h2 id="financesTitle">Finanças</h2>
           </div>
@@ -169,6 +169,35 @@
         </article>
       </section>
 
+      <section class="view" id="view-tasks" aria-labelledby="tasksTitle" hidden>
+        <div class="view-heading tasks-heading">
+          <div>
+            <h2 id="tasksTitle">Pendências</h2>
+          </div>
+          <button class="panel-add-btn" type="button" id="addTaskBtn" title="Nova pendência" aria-label="Nova pendência" data-icon="plus"></button>
+        </div>
+
+        <article class="panel tasks-panel">
+          <div class="task-filter-row">
+            <label class="filter-select">
+              <span>Situação</span>
+              <select id="taskStatusFilter">
+                <option value="pending">Pendentes</option>
+                <option value="completed">Concluídas</option>
+                <option value="all">Todas</option>
+              </select>
+            </label>
+            <label class="filter-select">
+              <span>Responsável</span>
+              <select id="taskOwnerFilter">
+                <option value="all">Todos</option>
+              </select>
+            </label>
+          </div>
+          <div class="task-list" id="taskList"></div>
+        </article>
+      </section>
+
       <section class="view" id="view-settings" aria-labelledby="settingsTitle" hidden>
         <div class="view-heading settings-heading">
           <div>
@@ -214,7 +243,7 @@
                   <input id="syncOwnerLoginInput" autocapitalize="none" autocomplete="username" />
                 </label>
                 <label>
-                  <span>Seu PIN</span>
+                  <span>Sua senha</span>
                   <input id="syncOwnerPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" />
                 </label>
               </div>
@@ -232,7 +261,7 @@
                   <input id="syncLoginInput" autocapitalize="none" autocomplete="username" />
                 </label>
                 <label>
-                  <span>PIN</span>
+                  <span>Senha</span>
                   <input id="syncPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" />
                 </label>
                 <button class="secondary-btn" type="submit" data-icon="log-in">Entrar</button>
@@ -305,6 +334,7 @@
       <button type="button" class="is-active nav-dashboard" data-view="dashboard" aria-label="Painel" title="Painel"><span class="nav-emoji" aria-hidden="true">🏠</span><span>Painel</span></button>
       <button type="button" class="nav-finances" data-view="finances" aria-label="Finanças" title="Finanças"><span class="nav-emoji" aria-hidden="true">💲</span><span>Finanças</span></button>
       <button type="button" data-view="market" aria-label="Feira" title="Feira"><span class="nav-emoji" aria-hidden="true">🛒</span><span>Feira</span></button>
+      <button type="button" data-view="tasks" aria-label="Pendências" title="Pendências"><span class="nav-emoji" aria-hidden="true">📌</span><span>Pendências</span></button>
       <button type="button" data-view="settings" aria-label="Ajustes" title="Ajustes"><span class="nav-emoji" aria-hidden="true">⚙️</span><span>Ajustes</span></button>
     </nav>
   </div>
@@ -539,7 +569,7 @@
         <input id="syncUserLoginInput" autocapitalize="none" autocomplete="username" required />
       </label>
       <label>
-        <span>PIN</span>
+        <span>Senha</span>
         <input id="syncUserPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" required />
       </label>
       <div class="modal-actions">
@@ -588,30 +618,70 @@
     </div>
   </dialog>
 
-  <dialog class="modal pin-modal" id="pinDialog">
-    <form method="dialog" class="modal-card pin-card" id="pinForm">
+  <dialog class="modal compact-modal" id="taskDialog">
+    <form method="dialog" class="modal-card" id="taskForm">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow">Organização da casa</p>
+          <h3 id="taskDialogTitle">Nova pendência</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="taskDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+      </div>
+      <input type="hidden" id="taskId" />
+      <label>
+        <span>Atividade</span>
+        <input id="taskTitleInput" autocomplete="off" required placeholder="Ex.: Fazer imposto de renda" />
+      </label>
+      <div class="form-grid two">
+        <label>
+          <span>Prazo final</span>
+          <input id="taskDueDateInput" type="date" required />
+        </label>
+        <label>
+          <span>Responsável</span>
+          <select id="taskOwnerInput" required></select>
+        </label>
+        <label>
+          <span>Prioridade</span>
+          <select id="taskPriorityInput">
+            <option value="normal">Normal</option>
+            <option value="high">Alta</option>
+            <option value="low">Baixa</option>
+          </select>
+        </label>
+      </div>
+      <label>
+        <span>Observação</span>
+        <textarea id="taskNotesInput" rows="3" placeholder="Detalhes, documentos ou próximo passo"></textarea>
+      </label>
+      <div class="modal-actions">
+        <button class="danger-btn" type="button" id="deleteTaskBtn" data-icon="trash-2" hidden>Excluir</button>
+        <span class="spacer"></span>
+        <button class="secondary-btn" type="button" data-close-dialog="taskDialog">Cancelar</button>
+        <button class="primary-btn" type="submit" data-icon="check">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal pin-modal" id="loginDialog">
+    <form method="dialog" class="modal-card pin-card" id="accessLoginForm">
       <div class="brand-lockup center">
         <img class="brand-mark" src="icon.svg" alt="" aria-hidden="true" />
         <div>
           <p class="eyebrow">Alô Finanças</p>
-          <h3 id="pinTitle">Entrar</h3>
+          <h3>Entrar</h3>
         </div>
       </div>
-      <input type="hidden" id="pinMode" />
-      <label id="currentPinWrap" hidden>
-        <span>PIN atual</span>
-        <input id="currentPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" />
+      <label>
+        <span>Login</span>
+        <input id="accessLoginInput" autocapitalize="none" autocomplete="username" required />
       </label>
       <label>
-        <span id="pinLabel">PIN</span>
-        <input id="pinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" />
+        <span>Senha</span>
+        <input id="accessPasswordInput" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" required />
       </label>
-      <label id="pinConfirmWrap" hidden>
-        <span>Confirmar PIN</span>
-        <input id="pinConfirmInput" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" />
-      </label>
-      <p class="form-error" id="pinError" hidden></p>
-      <button class="primary-btn wide" type="submit" id="pinSubmitBtn">Entrar</button>
+      <p class="form-error" id="accessLoginError" hidden></p>
+      <button class="primary-btn wide" type="submit" data-icon="log-in">Entrar</button>
     </form>
   </dialog>
 
