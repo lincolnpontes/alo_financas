@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.2';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SECURITY_KEY = 'alo_financas_security_v1';
 const SESSION_UNLOCK_KEY = 'alo_financas_unlocked_v1';
@@ -62,7 +62,7 @@ let state = {
   view: 'dashboard',
   month: currentMonth(),
   expenseFilter: 'all',
-  marketFilter: 'needed',
+  marketFilter: 'all',
   productSearch: '',
   deferredInstall: null,
   idleTimer: null
@@ -107,7 +107,6 @@ function bindEvents() {
   $('#productForm').addEventListener('submit', saveProductFromForm);
   $('#orderForm').addEventListener('submit', saveOrderFromForm);
   $('#pinForm').addEventListener('submit', handlePinSubmit);
-  $('#quickNeedForm').addEventListener('submit', handleQuickNeedSubmit);
   $('#syncSetupForm').addEventListener('submit', handleSyncSetup);
   $('#syncLoginForm').addEventListener('submit', handleSyncLogin);
   $('#importFileInput').addEventListener('change', handleImportFile);
@@ -193,8 +192,6 @@ function handleDocumentClick(event) {
 
   if (button.id === 'prevMonthBtn') shiftMonth(-1);
   if (button.id === 'nextMonthBtn') shiftMonth(1);
-  if (button.id === 'copyPreviousMonthBtn') copyPreviousMonth();
-  if (button.id === 'quickNeedBtn') $('#quickProductInput').focus();
   if (button.id === 'deleteRecordBtn') deleteCurrentRecord();
   if (button.id === 'deleteProductBtn') deleteCurrentProduct();
   if (button.id === 'exportBtn') exportData();
@@ -211,7 +208,7 @@ function handleDocumentClick(event) {
 function handleDocumentInput(event) {
   if (event.target.id === 'productSearch') {
     state.productSearch = event.target.value;
-    renderProductCatalog();
+    renderShoppingList();
   }
   resetIdleLock();
 }
@@ -237,6 +234,7 @@ function setView(view) {
 }
 
 function render() {
+  ensureRecurringForMonth();
   $$('.view').forEach(section => {
     const active = section.id === `view-${state.view}`;
     section.hidden = !active;
@@ -248,6 +246,7 @@ function render() {
   });
 
   $('#monthPicker').value = state.month;
+  $('#dashboardMonthLabel').textContent = capitalize(monthLabel(state.month));
   $('#todayLabel').textContent = DATE_LONG.format(new Date());
   renderDashboard();
   renderFinances();
@@ -268,12 +267,12 @@ function renderDashboard() {
     .slice(0, 6);
 
   $('#metricGrid').innerHTML = [
-    metric('Receitas', totals.incomeTotal, 'Previsto no mês', 'hand-coins', 'info'),
-    metric('Despesas', totals.expenseTotal, 'Contas cadastradas', 'receipt', 'danger'),
-    metric('A pagar', totals.expenseOpen, 'Ainda aberto', 'calendar-days', 'warning'),
-    metric('Saldo do mês', totals.monthBalance, totals.monthBalance >= 0 ? 'Sobra prevista' : 'Faltou previsto', 'badge-dollar-sign', totals.monthBalance >= 0 ? '' : 'danger'),
-    metric('Em contas', totals.accountTotal, 'Conta + poupanca', 'piggy-bank', ''),
-    metric('Lista', neededItems.length, 'Itens para comprar', 'shopping-basket', 'violet', false)
+    metricEmoji('Receitas', totals.incomeTotal, 'Previsto no mês', '💲', 'income'),
+    metricEmoji('Despesas', totals.expenseTotal, 'Total do mês', '💲', 'expense'),
+    metricEmoji('Pendente', totals.expenseOpen, 'Ainda falta pagar', '⚠️', 'pending'),
+    metricEmoji('Poupança e contas', totals.accountTotal, 'Patrimônio disponível', '🐖', 'savings'),
+    metricEmoji('Saldo do mês', totals.monthBalance, totals.monthBalance >= 0 ? 'Sobra prevista' : 'Falta prevista', '💰', totals.monthBalance >= 0 ? 'balance' : 'expense'),
+    metricEmoji('Lista da feira', neededItems.length, 'Itens pendentes', '🛒', 'market', false)
   ].join('');
 
   $('#upcomingList').innerHTML = dueSoon.length
@@ -352,43 +351,38 @@ function renderDebtList() {
 function renderMarket() {
   renderQuickOptions();
   renderShoppingList();
-  renderProductCatalog();
   setSegmentActive('#marketFilter', 'marketFilter', state.marketFilter);
 }
 
 function renderQuickOptions() {
-  $('#productOptions').innerHTML = visible(db.pantry.products)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map(product => `<option value="${escapeAttr(product.name)}"></option>`)
-    .join('');
-
   $('#categoryOptions').innerHTML = marketCategories()
     .map(category => `<option value="${escapeAttr(category)}"></option>`)
     .join('');
 }
 
 function renderShoppingList() {
-  let items = visible(db.pantry.list);
-  if (state.marketFilter !== 'all') items = items.filter(item => item.status === state.marketFilter);
-  items.sort((a, b) => {
-    const order = { needed: 1, ordered: 2, bought: 3 };
-    return (order[a.status] || 9) - (order[b.status] || 9) || (b.updatedAt || 0) - (a.updatedAt || 0);
-  });
-
-  $('#shoppingList').innerHTML = items.length
-    ? items.map(shoppingRow).join('')
-    : emptyState('Nenhum item neste filtro.');
-}
-
-function renderProductCatalog() {
   const query = normalizeText(state.productSearch);
   const products = visible(db.pantry.products)
     .filter(product => !query || normalizeText([product.name, product.category, product.goodBrands, product.badBrands].join(' ')).includes(query))
     .sort((a, b) => a.name.localeCompare(b.name));
+  const latestByProduct = new Map();
+  visible(db.pantry.list).forEach(item => {
+    const previous = latestByProduct.get(item.productId);
+    if (!previous || Number(item.updatedAt || 0) >= Number(previous.updatedAt || 0)) latestByProduct.set(item.productId, item);
+  });
 
-  $('#productCatalog').innerHTML = products.length
-    ? products.map(productRow).join('')
-    : emptyState('Nenhum produto encontrado.');
+  let entries = products.map(product => ({ product, item: latestByProduct.get(product.id) || null }));
+  if (state.marketFilter !== 'all') entries = entries.filter(entry => entry.item?.status === state.marketFilter);
+  entries.sort((a, b) => {
+    const order = { needed: 1, ordered: 2, bought: 3 };
+    const statusA = a.item?.status || 'stocked';
+    const statusB = b.item?.status || 'stocked';
+    return (order[statusA] || 9) - (order[statusB] || 9) || a.product.name.localeCompare(b.product.name);
+  });
+
+  $('#shoppingList').innerHTML = entries.length
+    ? entries.map(shoppingRow).join('')
+    : emptyState(state.productSearch ? 'Nenhum produto encontrado.' : 'Nenhum item neste filtro.');
 }
 
 function renderSettings() {
@@ -403,6 +397,7 @@ function renderSettings() {
     miniStat('Reservas', totals.accountTotal),
     miniStat('Atualizado', shortDateTime(db.updatedAt))
   ].join('');
+  renderAudit();
 }
 
 function renderSyncStatus() {
@@ -446,6 +441,39 @@ function metric(label, value, helper, icon, tone = '', currency = true) {
       <small>${escapeHTML(helper)}</small>
     </article>
   `;
+}
+
+function metricEmoji(label, value, helper, emoji, tone = '', currency = true) {
+  const display = currency ? formatMoney(value) : String(value);
+  return `
+    <article class="metric metric-${escapeAttr(tone)}">
+      <span class="metric-emoji" aria-hidden="true">${emoji}</span>
+      <div class="metric-copy">
+        <small>${escapeHTML(label)}</small>
+        <strong>${escapeHTML(display)}</strong>
+      </div>
+      <small>${escapeHTML(helper)}</small>
+    </article>
+  `;
+}
+
+function renderAudit() {
+  const entries = visible(db.audit)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    .slice(0, 60);
+  $('#auditCount').textContent = `${entries.length} ${entries.length === 1 ? 'ação' : 'ações'}`;
+  $('#auditList').innerHTML = entries.length
+    ? entries.map(entry => `
+        <div class="audit-row">
+          <span class="audit-avatar">${escapeHTML(initials(entry.actor))}</span>
+          <div>
+            <strong>${escapeHTML(entry.actor || 'Neste aparelho')}</strong>
+            <p>${escapeHTML(entry.action)} <b>${escapeHTML(entry.summary)}</b></p>
+          </div>
+          <time datetime="${new Date(entry.createdAt).toISOString()}">${escapeHTML(shortDateTime(entry.createdAt))}</time>
+        </div>
+      `).join('')
+    : emptyState('As próximas alterações aparecerão aqui.');
 }
 
 function summaryTile(label, value) {
@@ -500,9 +528,10 @@ function financeRow(type, item) {
 
 function rowConfig(type, item) {
   if (type === 'expense') {
+    const recurringLabel = item.recurring ? ' · fixa todo mês' : '';
     return {
       title: item.title,
-      subtitle: `${item.category || 'Despesa'} - dia ${item.dueDay || '-'} - ${item.owner || 'Casa'}`,
+      subtitle: `${item.category || 'Despesa'} · dia ${item.dueDay || '-'} · ${item.owner || 'Casa'}${recurringLabel}`,
       icon: 'receipt',
       tone: item.status === 'paid' ? '' : item.status === 'debt' ? 'danger' : 'warning',
       cycleTitle: item.status === 'paid' ? 'Marcar aberto' : 'Marcar pago',
@@ -510,9 +539,10 @@ function rowConfig(type, item) {
     };
   }
   if (type === 'income') {
+    const recurringLabel = item.recurring ? ' · fixa todo mês' : '';
     return {
       title: item.title,
-      subtitle: `${item.category || 'Receita'} - dia ${item.day || '-'} - ${item.owner || 'Casa'}`,
+      subtitle: `${item.category || 'Receita'} · dia ${item.day || '-'} · ${item.owner || 'Casa'}${recurringLabel}`,
       icon: 'hand-coins',
       tone: item.status === 'received' ? '' : 'info',
       cycleTitle: item.status === 'received' ? 'Marcar esperado' : 'Marcar recebido',
@@ -549,26 +579,41 @@ function rowConfig(type, item) {
   };
 }
 
-function shoppingRow(item) {
-  const product = db.pantry.products.find(p => p.id === item.productId);
-  const brandLine = product ? productHints(product) : '';
-  const ordered = item.status === 'ordered';
-  const bought = item.status === 'bought';
+function shoppingRow(entry) {
+  const { product, item } = entry;
+  const status = item?.status || 'stocked';
+  const brandLine = productHints(product);
+  const ordered = status === 'ordered';
+  const bought = status === 'bought';
+  const needed = status === 'needed';
+  const qty = item?.qty || product.defaultQty || 1;
+  const unit = item?.unit || product.unit || 'un';
+  const statusText = status === 'stocked' ? 'Em casa' : marketStatusLabel(status);
+  const statusControls = item
+    ? `
+        <button class="market-action need-action ${needed ? 'is-selected' : ''}" type="button" data-list-status="needed" data-id="${escapeAttr(item.id)}" title="Marcar pendente">${iconSvg('shopping-basket')}<span>Pendente</span></button>
+        <button class="market-action order-action ${ordered ? 'is-selected' : ''}" type="button" data-list-status="ordered" data-id="${escapeAttr(item.id)}" title="Registrar pedido">${iconSvg('send')}<span>Pedir</span></button>
+        <button class="market-action bought-action ${bought ? 'is-selected' : ''}" type="button" data-list-status="bought" data-id="${escapeAttr(item.id)}" title="Marcar comprado">${iconSvg('check')}<span>Comprei</span></button>
+      `
+    : `<button class="market-action need-action" type="button" data-add-product-list="${escapeAttr(product.id)}" title="Adicionar como pendente">${iconSvg('plus')}<span>Está faltando</span></button>`;
   return `
-    <div class="data-row">
-      <span class="row-icon ${ordered ? 'violet' : bought ? '' : 'warning'}">${iconSvg(bought ? 'package-check' : ordered ? 'send' : 'shopping-basket')}</span>
+    <article class="shopping-item status-${escapeAttr(status)}">
+      <button class="shopping-status-mark" type="button" ${item ? `data-list-status="needed" data-id="${escapeAttr(item.id)}"` : `data-add-product-list="${escapeAttr(product.id)}"`} title="Marcar como pendente" aria-label="Marcar ${escapeAttr(product.name)} como pendente">
+        ${needed ? '⚠️' : ordered ? '📦' : bought ? '✓' : iconSvg('shopping-basket')}
+      </button>
       <div class="data-main">
-        <strong>${escapeHTML(item.name)}</strong>
-        <small>${escapeHTML(`${item.qty || 1} ${item.unit || 'un'} - ${marketStatusLabel(item.status)}${item.site ? ` - ${item.site}` : ''}`)}</small>
+        <div class="shopping-title-line">
+          <strong>${escapeHTML(product.name)}</strong>
+          <span class="badge ${escapeAttr(status)}">${escapeHTML(statusText)}</span>
+        </div>
+        <small>${escapeHTML(`${product.category || 'Mercado'} · ${qty} ${unit}${item?.site ? ` · ${item.site}` : ''}`)}</small>
         ${brandLine ? `<small>${brandLine}</small>` : ''}
       </div>
-      <div class="row-amount">${statusBadge('market', item.status)}</div>
-      <div class="row-actions">
-        <button class="icon-btn" type="button" title="Falta" aria-label="Falta" data-list-status="needed" data-id="${escapeAttr(item.id)}">${iconSvg('undo')}</button>
-        <button class="icon-btn" type="button" title="Pedido" aria-label="Pedido" data-list-status="ordered" data-id="${escapeAttr(item.id)}">${iconSvg('send')}</button>
-        <button class="icon-btn" type="button" title="Comprado" aria-label="Comprado" data-list-status="bought" data-id="${escapeAttr(item.id)}">${iconSvg('check')}</button>
+      <div class="shopping-actions">
+        ${statusControls}
+        <button class="market-action edit-action" type="button" title="Editar produto" aria-label="Editar produto" data-edit-product data-id="${escapeAttr(product.id)}">${iconSvg('edit-3')}</button>
       </div>
-    </div>
+    </article>
   `;
 }
 
@@ -666,6 +711,10 @@ function openRecordDialog(type, id = '') {
   $('#recordOwner').closest('label').hidden = !config.showOwner;
   $('#recordCategory').closest('label').hidden = !config.showCategory;
   $('#recordAccount').closest('label').hidden = !config.showAccount;
+  const supportsRecurring = type === 'expense' || type === 'income';
+  const recurrence = item?.recurrenceId ? db.finances.recurring.find(entry => entry.id === item.recurrenceId) : null;
+  $('#recordRecurringWrap').hidden = !supportsRecurring;
+  $('#recordRecurring').checked = supportsRecurring && Boolean(recurrence ? recurrence.active : item?.recurring);
   $('#recordNotes').value = item?.notes || '';
   $('#deleteRecordBtn').hidden = !item;
 
@@ -686,6 +735,7 @@ function saveRecordFromForm(event) {
   const id = $('#recordId').value || uid(type);
   const now = Date.now();
   const existing = collection.find(item => item.id === id);
+  const isNew = !existing;
   const amount = parseMoney($('#recordAmount').value);
   if (!Number.isFinite(amount)) return toast('Informe um valor válido.', 'error');
 
@@ -718,9 +768,27 @@ function saveRecordFromForm(event) {
     if (type === 'expense') item.dueDay = clampDay($('#recordDay').value);
     if (type === 'income') item.day = clampDay($('#recordDay').value);
     if (!item.title) return toast('Informe o nome.', 'error');
+
+    const wantsRecurring = $('#recordRecurring').checked;
+    if (wantsRecurring) {
+      const recurrenceId = item.recurrenceId || uid('recurring');
+      item.recurrenceId = recurrenceId;
+      item.recurring = true;
+      upsertRecurrence(recurrenceId, type, item);
+    } else {
+      item.recurring = false;
+      if (item.recurrenceId) {
+        const recurrence = db.finances.recurring.find(entry => entry.id === item.recurrenceId);
+        if (recurrence) {
+          recurrence.active = false;
+          recurrence.updatedAt = now;
+        }
+      }
+    }
   }
 
   if (!existing) collection.push(item);
+  addAudit(isNew ? 'cadastrou' : 'alterou', recordEntityLabel(type), recordDisplayName(type, item));
   saveData();
   closeDialog('recordDialog');
   toast('Registro salvo.', 'good');
@@ -731,7 +799,9 @@ function deleteCurrentRecord() {
   const id = $('#recordId').value;
   if (!id) return;
   if (!confirm('Excluir este registro?')) return;
+  const item = getCollection(type).find(entry => entry.id === id);
   markDeleted(getCollection(type), id);
+  addAudit('excluiu', recordEntityLabel(type), recordDisplayName(type, item));
   saveData();
   closeDialog('recordDialog');
   toast('Registro excluído.', 'good');
@@ -776,6 +846,7 @@ function saveProductFromForm(event) {
 
   if (!existing) db.pantry.products.push(product);
   if (!db.pantry.categories.includes(product.category)) db.pantry.categories.push(product.category);
+  addAudit(existing ? 'alterou' : 'cadastrou', 'produto', product.name);
   saveData();
   closeDialog('productDialog');
   toast('Produto salvo.', 'good');
@@ -785,7 +856,9 @@ function deleteCurrentProduct() {
   const id = $('#productId').value;
   if (!id) return;
   if (!confirm('Excluir este produto?')) return;
+  const product = db.pantry.products.find(item => item.id === id);
   markDeleted(db.pantry.products, id);
+  addAudit('excluiu', 'produto', product?.name || 'Produto');
   saveData();
   closeDialog('productDialog');
   toast('Produto excluído.', 'good');
@@ -847,6 +920,7 @@ function addProductToShoppingList(productId, qty = '', unit = '') {
       updatedAt: now
     });
   }
+  addAudit('marcou como pendente', 'item da feira', product.name);
   saveData();
   toast('Item na lista.', 'good');
 }
@@ -861,6 +935,7 @@ function setShoppingStatus(id, status) {
   item.status = status;
   item.updatedAt = Date.now();
   if (status === 'bought') item.boughtAt = item.updatedAt;
+  addAudit(status === 'bought' ? 'marcou como comprado' : 'marcou como pendente', 'item da feira', item.name);
   saveData();
 }
 
@@ -881,6 +956,7 @@ function saveOrderFromForm(event) {
   item.site = $('#orderSiteInput').value.trim();
   item.status = 'ordered';
   item.updatedAt = Date.now();
+  addAudit('registrou pedido', 'item da feira', `${item.name}${item.site ? ` em ${item.site}` : ''}`);
   saveData();
   closeDialog('orderDialog');
   toast('Pedido registrado.', 'good');
@@ -894,47 +970,69 @@ function cycleRecordStatus(type, id) {
   if (type === 'receivable') item.status = item.status === 'received' ? 'open' : 'received';
   if (type === 'debt') item.status = item.status === 'paid' ? 'open' : 'paid';
   item.updatedAt = Date.now();
+  addAudit('alterou o status de', recordEntityLabel(type), `${recordDisplayName(type, item)} para ${statusLabel(type, item.status)}`);
   saveData();
 }
 
-function copyPreviousMonth() {
-  const previous = shiftMonthValue(state.month, -1);
-  const expenseSource = visible(db.finances.expenses).filter(item => item.month === previous);
-  const incomeSource = visible(db.finances.incomes).filter(item => item.month === previous);
-  if (!expenseSource.length && !incomeSource.length) return toast('Mês anterior sem registros.', 'error');
-  if (!confirm(`Copiar despesas e receitas de ${monthLabel(previous)}?`)) return;
+function upsertRecurrence(id, type, item) {
   const now = Date.now();
-  const currentExpenseNames = new Set(visible(db.finances.expenses).filter(item => item.month === state.month).map(item => normalizeText(item.title)));
-  const currentIncomeNames = new Set(visible(db.finances.incomes).filter(item => item.month === state.month).map(item => normalizeText(item.title)));
+  let recurrence = db.finances.recurring.find(entry => entry.id === id);
+  if (!recurrence) {
+    recurrence = { id, type, startMonth: state.month, createdAt: now };
+    db.finances.recurring.push(recurrence);
+  }
+  Object.assign(recurrence, {
+    type,
+    title: item.title,
+    amount: item.amount,
+    dueDay: item.dueDay,
+    day: item.day,
+    owner: item.owner,
+    category: item.category,
+    accountId: item.accountId,
+    notes: item.notes,
+    active: true,
+    updatedAt: now,
+    deletedAt: 0
+  });
+}
 
-  expenseSource.forEach(item => {
-    if (currentExpenseNames.has(normalizeText(item.title))) return;
-    db.finances.expenses.push({
-      ...clone(item),
-      id: uid('expense'),
+function ensureRecurringForMonth() {
+  const created = [];
+  visible(db.finances.recurring).filter(item => item.active && item.startMonth <= state.month).forEach(recurrence => {
+    const collection = recurrence.type === 'income' ? db.finances.incomes : db.finances.expenses;
+    const alreadyCreated = collection.some(item => item.recurrenceId === recurrence.id && item.month === state.month);
+    if (alreadyCreated) return;
+    const now = Date.now();
+    const item = {
+      id: uid(recurrence.type),
+      recurrenceId: recurrence.id,
+      recurring: true,
+      title: recurrence.title,
+      amount: recurrence.amount,
       month: state.month,
-      status: item.status === 'paid' ? 'pending' : item.status,
+      owner: recurrence.owner,
+      category: recurrence.category,
+      accountId: recurrence.accountId,
+      notes: recurrence.notes,
+      status: recurrence.type === 'income' ? 'expected' : 'pending',
       createdAt: now,
       updatedAt: now,
       deletedAt: 0
-    });
+    };
+    if (recurrence.type === 'income') item.day = recurrence.day;
+    else item.dueDay = recurrence.dueDay;
+    collection.push(item);
+    created.push(item.title);
   });
 
-  incomeSource.forEach(item => {
-    if (currentIncomeNames.has(normalizeText(item.title))) return;
-    db.finances.incomes.push({
-      ...clone(item),
-      id: uid('income'),
-      month: state.month,
-      status: item.status === 'received' ? 'expected' : item.status,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: 0
-    });
-  });
-
-  saveData();
-  toast('Mês copiado.', 'good');
+  if (!created.length) return;
+  addAudit('incluiu automaticamente', 'recorrência mensal', `${created.join(', ')} em ${monthLabel(state.month)}`, { actor: 'Sistema' });
+  db.updatedAt = Date.now();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  syncState.meta.localDirty = true;
+  saveSyncMeta();
+  scheduleSync();
 }
 
 function recordConfig(type) {
@@ -1076,12 +1174,13 @@ function defaultDB() {
     createdAt: now,
     updatedAt: now,
     settings: {
-      householdName: 'Casa Pontes',
+      householdName: 'Nossa casa',
       members: OWNERS
     },
     finances: {
       expenses: [],
       incomes: [],
+      recurring: [],
       accounts: [
         { id: uid('account'), name: 'Conta', type: 'Conta corrente', balance: 0, notes: '', createdAt: now, updatedAt: now },
         { id: uid('account'), name: 'Poupança', type: 'Poupança', balance: 0, notes: '', createdAt: now, updatedAt: now }
@@ -1093,7 +1192,8 @@ function defaultDB() {
       categories: DEFAULT_MARKET_CATEGORIES.slice(),
       products: seedProducts,
       list: []
-    }
+    },
+    audit: []
   };
 }
 
@@ -1109,13 +1209,14 @@ function normalizeDB(input) {
   };
   normalized.appId = APP_ID;
   normalized.schemaVersion = 1;
-  ['expenses', 'incomes', 'accounts', 'receivables', 'debts'].forEach(key => {
+  ['expenses', 'incomes', 'accounts', 'receivables', 'debts', 'recurring'].forEach(key => {
     normalized.finances[key] = Array.isArray(normalized.finances[key]) ? normalized.finances[key].map(normalizeItem) : [];
   });
   ['products', 'list'].forEach(key => {
     normalized.pantry[key] = Array.isArray(normalized.pantry[key]) ? normalized.pantry[key].map(normalizeItem) : [];
   });
   normalized.pantry.categories = Array.isArray(normalized.pantry.categories) ? normalized.pantry.categories : DEFAULT_MARKET_CATEGORIES.slice();
+  normalized.audit = Array.isArray(normalized.audit) ? normalized.audit.map(normalizeItem) : [];
   return normalized;
 }
 
@@ -1525,11 +1626,13 @@ function mergeDB(remote, local) {
   merged.settings = newerRoot(remote, local) === local ? clone(local.settings) : clone(remote.settings);
   merged.finances.expenses = mergeArray(remote.finances.expenses, local.finances.expenses);
   merged.finances.incomes = mergeArray(remote.finances.incomes, local.finances.incomes);
+  merged.finances.recurring = mergeArray(remote.finances.recurring, local.finances.recurring);
   merged.finances.accounts = mergeArray(remote.finances.accounts, local.finances.accounts);
   merged.finances.receivables = mergeArray(remote.finances.receivables, local.finances.receivables);
   merged.finances.debts = mergeArray(remote.finances.debts, local.finances.debts);
   merged.pantry.products = mergeArray(remote.pantry.products, local.pantry.products);
   merged.pantry.list = mergeArray(remote.pantry.list, local.pantry.list);
+  merged.audit = mergeArray(remote.audit, local.audit);
   merged.pantry.categories = Array.from(new Set([...(remote.pantry.categories || []), ...(local.pantry.categories || [])]));
   merged.updatedAt = Math.max(Number(remote.updatedAt || 0), Number(local.updatedAt || 0), Date.now());
   return merged;
@@ -1568,6 +1671,7 @@ function handleImportFile(event) {
       if (imported.appId !== APP_ID) throw new Error('Arquivo inválido.');
       if (!confirm('Substituir os dados deste aparelho pelo backup?')) return;
       db = imported;
+      addAudit('importou', 'o backup', 'Dados restaurados neste aparelho');
       saveData();
       toast('Backup importado.', 'good');
     } catch (error) {
@@ -1688,6 +1792,40 @@ function formatNumberInput(value) {
 
 function sum(items, key) {
   return items.reduce((total, item) => total + Number(item[key] || 0), 0);
+}
+
+function addAudit(action, entity, summary, options = {}) {
+  if (!Array.isArray(db.audit)) db.audit = [];
+  const actor = options.actor || syncState.user?.name || syncState.user?.login || 'Neste aparelho';
+  const now = Date.now();
+  db.audit.push({
+    id: uid('audit'),
+    actor,
+    action: `${action} ${entity}`,
+    summary: String(summary || '-'),
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: 0
+  });
+  if (db.audit.length > 500) db.audit = db.audit.sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0)).slice(0, 500);
+}
+
+function recordEntityLabel(type) {
+  return ({ expense: 'a despesa', income: 'a receita', account: 'a conta', receivable: 'o valor a receber', debt: 'a dívida' })[type] || 'o registro';
+}
+
+function recordDisplayName(type, item) {
+  if (!item) return 'Registro';
+  return type === 'account' ? item.name : type === 'receivable' || type === 'debt' ? item.person || item.title : item.title;
+}
+
+function initials(value) {
+  return String(value || '?').trim().split(/\s+/).slice(0, 2).map(part => part[0] || '').join('').toUpperCase();
+}
+
+function capitalize(value) {
+  const text = String(value || '');
+  return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
 
 function visible(items) {

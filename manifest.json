@@ -1,5 +1,5 @@
 {
-  "name": "Alo Finanças",
+  "name": "Alô Finanças",
   "short_name": "AloFin",
   "description": "Finanças da casa, reservas, contas mensais e lista de feira.",
   "start_url": "index.html",
@@ -7,7 +7,7 @@
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#f5f7f4",
-  "theme_color": "#1f7a6f",
+  "theme_color": "#176b61",
   "icons": [
     {
       "src": "icon.svg",

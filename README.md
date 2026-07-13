@@ -1,4 +1,4 @@
-# Alo Finanças
+# Alô Finanças
 
 App PWA estático para controle doméstico de finanças e lista de feira.
 
