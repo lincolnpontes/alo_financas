@@ -183,34 +183,6 @@
         </div>
 
         <div class="settings-grid">
-          <article class="panel">
-            <div class="panel-title">
-              <div class="settings-title-lockup">
-                <span class="settings-emoji" aria-hidden="true">🔐</span>
-                <div>
-                  <h3>Acesso neste aparelho</h3>
-                  <p>Bloqueio local</p>
-                </div>
-              </div>
-              <span class="status-pill good" id="securityStatus">PIN ativo</span>
-            </div>
-            <div class="form-grid">
-              <label>
-                <span>Bloquear automaticamente após</span>
-                <select id="lockAfterSelect" title="Tempo sem uso antes de pedir o PIN novamente">
-                  <option value="5">5 min</option>
-                  <option value="15">15 min</option>
-                  <option value="30">30 min</option>
-                  <option value="60">1 h</option>
-                </select>
-              </label>
-            </div>
-            <div class="action-row">
-              <button class="secondary-btn" type="button" id="changePinBtn" title="Alterar o PIN local deste aparelho" data-icon="key-round">Trocar PIN</button>
-              <button class="secondary-btn" type="button" id="lockNowBtn" title="Exigir o PIN imediatamente" data-icon="lock">Bloquear agora</button>
-            </div>
-          </article>
-
           <article class="panel sync-panel">
             <div class="panel-title">
               <div class="settings-title-lockup">
@@ -268,12 +240,6 @@
               </form>
             </div>
 
-            <div class="action-row">
-              <button class="secondary-btn" type="button" id="editSyncSetupBtn" data-icon="settings">Configurar</button>
-              <button class="secondary-btn" type="button" id="pullSyncBtn" data-icon="download-cloud">Puxar</button>
-              <button class="secondary-btn" type="button" id="pushSyncBtn" data-icon="upload-cloud">Enviar</button>
-              <button class="ghost-btn" type="button" id="logoutSyncBtn">Sair</button>
-            </div>
             <p class="microcopy" id="syncDetailText">Modo local</p>
           </article>
 
@@ -373,7 +339,7 @@
           <span id="recordDayLabel">Dia</span>
           <input id="recordDay" inputmode="numeric" placeholder="10" />
         </label>
-        <label>
+        <label hidden>
           <span>Status</span>
           <select id="recordStatus"></select>
         </label>
@@ -385,7 +351,7 @@
           <span>Categoria</span>
           <select id="recordCategory"></select>
         </label>
-        <label>
+        <label hidden>
           <span>Conta</span>
           <select id="recordAccount"></select>
         </label>
@@ -542,23 +508,18 @@
     </form>
   </dialog>
 
-  <dialog class="modal action-modal" id="quickActionsDialog">
-    <div class="modal-card">
-      <div class="modal-title">
-        <div>
-          <p class="eyebrow" id="quickActionsEyebrow">Ações</p>
-          <h3 id="quickActionsTitle">Item</h3>
-        </div>
-        <button class="icon-btn" type="button" data-close-dialog="quickActionsDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
-      </div>
-      <input type="hidden" id="quickActionsType" />
-      <input type="hidden" id="quickActionsId" />
-      <div class="quick-action-list">
-        <button class="secondary-btn" type="button" id="quickStateBtn" data-icon="undo">Desfazer pagamento</button>
-        <button class="secondary-btn" type="button" id="quickEditBtn" data-icon="edit-3">Editar</button>
-      </div>
+  <div class="context-menu" id="quickActionsMenu" role="menu" hidden>
+    <div class="context-menu-title">
+      <small id="quickActionsEyebrow">Ações</small>
+      <strong id="quickActionsTitle">Item</strong>
     </div>
-  </dialog>
+    <input type="hidden" id="quickActionsType" />
+    <input type="hidden" id="quickActionsId" />
+    <div class="quick-action-list">
+      <button type="button" id="quickStateBtn">Desfazer pagamento</button>
+      <button type="button" id="quickEditBtn">Editar</button>
+    </div>
+  </div>
 
   <dialog class="modal compact-modal" id="syncUserDialog">
     <form method="dialog" class="modal-card" id="syncUserForm">
@@ -601,6 +562,10 @@
         <button class="icon-btn" type="button" data-close-dialog="registryDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
       </div>
       <form class="registry-add-form" id="registryForm">
+        <label class="registry-emoji-field" id="registryEmojiWrap">
+          <span>Emoji</span>
+          <input id="registryEmojiInput" maxlength="8" value="📦" />
+        </label>
         <label>
           <span id="registryInputLabel">Nova categoria</span>
           <input id="registryInput" autocomplete="off" required />

@@ -25,6 +25,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   min-height: 100%;
   background: var(--bg);
@@ -1711,6 +1715,17 @@ body {
 
 .finance-month-switcher .month-display strong {
   font-size: 1.08rem;
+  text-transform: none;
+}
+
+.finance-month-switcher .month-display input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .expense-row {
@@ -1798,6 +1813,63 @@ body {
   min-height: 48px;
 }
 
+.context-menu {
+  position: fixed;
+  z-index: 90;
+  display: grid;
+  gap: 7px;
+  width: 228px;
+  padding: 8px;
+  border: 1px solid #cbd9d3;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 42px rgba(18, 49, 41, 0.22);
+}
+
+.context-menu-title {
+  display: grid;
+  gap: 2px;
+  padding: 5px 7px 7px;
+  border-bottom: 1px solid #e0e8e4;
+}
+
+.context-menu-title small {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.context-menu-title strong {
+  overflow: hidden;
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-menu .quick-action-list {
+  gap: 3px;
+}
+
+.context-menu .quick-action-list button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.context-menu .quick-action-list button:hover {
+  background: var(--surface-2);
+}
+
 .market-select-filters {
   display: flex;
   align-items: center;
@@ -1862,12 +1934,22 @@ body {
 }
 
 .quantity-stepper {
-  grid-template-columns: 32px minmax(48px, auto) 32px 34px;
+  display: flex;
+  grid-template-columns: none;
   min-height: 36px;
 }
 
 .quantity-stepper button {
+  flex: 0 0 32px;
   min-height: 36px;
+}
+
+.quantity-stepper .quantity-value {
+  flex: 1 1 58px;
+}
+
+.quantity-stepper .quantity-tick {
+  flex-basis: 34px;
 }
 
 .quantity-stepper .quantity-tick {
@@ -1922,9 +2004,15 @@ body {
 
 .registry-add-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 86px minmax(0, 1fr) auto;
   align-items: end;
   gap: 8px;
+}
+
+.registry-emoji-field input,
+.category-emoji-input {
+  text-align: center;
+  font-size: 1.22rem;
 }
 
 .registry-list {
@@ -1954,6 +2042,38 @@ body {
   height: 34px;
   min-height: 34px;
   color: var(--red);
+}
+
+.registry-category-row {
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+}
+
+.category-emoji-input {
+  width: 44px;
+  min-height: 38px;
+  padding: 4px;
+  border: 1px solid #d3dfda;
+  border-radius: 7px;
+  background: #f7faf8;
+}
+
+.registry-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.registry-row .order-btn {
+  color: var(--brand-strong);
+}
+
+.registry-row .delete-btn {
+  color: var(--red);
+}
+
+.registry-row .icon-btn:disabled {
+  color: #aab6b1;
+  opacity: 0.45;
 }
 
 @media (max-width: 760px) {
@@ -1987,8 +2107,32 @@ body {
   }
 
   .registry-add-form {
-    grid-template-columns: 1fr;
+    grid-template-columns: 76px minmax(0, 1fr);
   }
+
+  .registry-add-form .primary-btn {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Final interaction fixes for 1.0.5 */
+.finance-month-switcher .month-display::after {
+  content: none;
+}
+
+.finance-month-switcher .month-display strong {
+  text-transform: none;
+}
+
+.quantity-stepper {
+  display: flex;
+  grid-template-columns: none;
+  flex-wrap: nowrap;
+}
+
+.quantity-stepper .quantity-tick {
+  order: 4;
+  flex: 0 0 36px;
 }
 
 /* Premium refinement for 1.0.2 */
@@ -2484,4 +2628,39 @@ body {
   .sync-login-card .inline-form {
     grid-template-columns: 1fr;
   }
+}
+
+/* Keep these rules last so older component layers cannot restore removed UI. */
+.finance-month-switcher .month-display::after {
+  content: none;
+}
+
+.finance-month-switcher .month-display strong {
+  text-transform: none;
+}
+
+.finance-month-switcher .month-display input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.quantity-stepper {
+  display: flex;
+  grid-template-columns: none;
+  flex-wrap: nowrap;
+}
+
+.quantity-stepper .quantity-value {
+  flex: 1 1 58px;
+}
+
+.quantity-stepper .quantity-tick {
+  order: 4;
+  flex: 0 0 36px;
+  border-left: 1px solid var(--line);
 }
