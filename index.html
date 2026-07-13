@@ -74,7 +74,6 @@
           <div class="month-switcher finance-month-switcher" aria-label="Mês das finanças">
             <button class="icon-btn" type="button" id="prevMonthBtn" title="Mês anterior" aria-label="Mês anterior" data-icon="chevron-left"></button>
             <label class="month-display">
-              <span>Período financeiro</span>
               <strong id="financeMonthLabel">Mês atual</strong>
               <input type="month" id="monthPicker" aria-label="Escolher mês" />
             </label>
@@ -153,16 +152,22 @@
 
         <article class="panel market-panel">
           <div class="market-filter-row">
-            <div class="segmented" id="marketFilter" role="tablist" aria-label="Filtro da lista">
-              <button type="button" data-market-filter="needed">Pendente</button>
-              <button type="button" data-market-filter="ordered">Pedido</button>
-              <button type="button" data-market-filter="bought">Comprado</button>
-              <button type="button" class="is-active" data-market-filter="all">Tudo</button>
-            </div>
-            <div class="market-legend" aria-label="Cores dos estados">
-              <span class="legend-dot needed">Pendente</span>
-              <span class="legend-dot ordered">Pedido</span>
-              <span class="legend-dot bought">Comprado</span>
+            <div class="market-select-filters">
+              <label class="filter-select">
+                <span>Situação</span>
+                <select id="marketStatusFilter">
+                  <option value="all">Tudo</option>
+                  <option value="needed">Pendente</option>
+                  <option value="ordered">Pedido</option>
+                  <option value="bought">Comprado</option>
+                </select>
+              </label>
+              <label class="filter-select">
+                <span>Categoria</span>
+                <select id="marketCategoryFilter">
+                  <option value="all">Todas</option>
+                </select>
+              </label>
             </div>
           </div>
           <div class="shopping-grid" id="shoppingList"></div>
@@ -192,7 +197,7 @@
             <div class="form-grid">
               <label>
                 <span>Bloquear automaticamente após</span>
-                <select id="lockAfterSelect">
+                <select id="lockAfterSelect" title="Tempo sem uso antes de pedir o PIN novamente">
                   <option value="5">5 min</option>
                   <option value="15">15 min</option>
                   <option value="30">30 min</option>
@@ -201,8 +206,8 @@
               </label>
             </div>
             <div class="action-row">
-              <button class="secondary-btn" type="button" id="changePinBtn" data-icon="key-round">Trocar PIN</button>
-              <button class="secondary-btn" type="button" id="lockNowBtn" data-icon="lock">Bloquear</button>
+              <button class="secondary-btn" type="button" id="changePinBtn" title="Alterar o PIN local deste aparelho" data-icon="key-round">Trocar PIN</button>
+              <button class="secondary-btn" type="button" id="lockNowBtn" title="Exigir o PIN imediatamente" data-icon="lock">Bloquear agora</button>
             </div>
           </article>
 
@@ -284,6 +289,22 @@
               <button class="panel-add-btn" type="button" id="addSyncUserBtn" title="Cadastrar usuário" aria-label="Cadastrar usuário" data-icon="plus"></button>
             </div>
             <div class="users-list" id="syncUsersList"></div>
+          </article>
+
+          <article class="panel registry-panel">
+            <div class="panel-title">
+              <div class="settings-title-lockup">
+                <span class="settings-emoji" aria-hidden="true">🛒</span>
+                <div>
+                  <h3>Cadastros da Feira</h3>
+                  <p>Opções reutilizáveis</p>
+                </div>
+              </div>
+            </div>
+            <div class="settings-command-list">
+              <button class="secondary-btn" type="button" id="manageCategoriesBtn" data-icon="package">Cadastrar categorias</button>
+              <button class="secondary-btn" type="button" id="manageSitesBtn" data-icon="shopping-basket">Cadastrar sites</button>
+            </div>
           </article>
 
           <article class="panel">
@@ -434,8 +455,8 @@
           <input id="productDefaultQty" inputmode="decimal" placeholder="1" />
         </label>
         <label>
-          <span>Unidade</span>
-          <input id="productUnit" placeholder="un" />
+          <span>Unidades de compra</span>
+          <input id="productUnit" placeholder="un; caixa; pacote" />
         </label>
         <label class="span-2">
           <span>Marcas boas</span>
@@ -447,7 +468,8 @@
         </label>
         <label>
           <span>Sites</span>
-          <input id="productSites" placeholder="Site ou app" />
+          <input id="productSites" list="siteOptions" placeholder="Site ou app" />
+          <datalist id="siteOptions"></datalist>
         </label>
         <label>
           <span>Observação</span>
@@ -472,7 +494,7 @@
       <input type="hidden" id="orderItemId" />
       <label>
         <span>Site ou app</span>
-        <input id="orderSiteInput" autocomplete="off" placeholder="Mercado Livre, iFood, site do mercado..." />
+        <input id="orderSiteInput" list="siteOptions" autocomplete="off" placeholder="Mercado Livre, iFood, site do mercado..." />
       </label>
       <div class="modal-actions">
         <span class="spacer"></span>
@@ -520,15 +542,34 @@
     </form>
   </dialog>
 
+  <dialog class="modal action-modal" id="quickActionsDialog">
+    <div class="modal-card">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow" id="quickActionsEyebrow">Ações</p>
+          <h3 id="quickActionsTitle">Item</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="quickActionsDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+      </div>
+      <input type="hidden" id="quickActionsType" />
+      <input type="hidden" id="quickActionsId" />
+      <div class="quick-action-list">
+        <button class="secondary-btn" type="button" id="quickStateBtn" data-icon="undo">Desfazer pagamento</button>
+        <button class="secondary-btn" type="button" id="quickEditBtn" data-icon="edit-3">Editar</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog class="modal compact-modal" id="syncUserDialog">
     <form method="dialog" class="modal-card" id="syncUserForm">
       <div class="modal-title">
         <div>
           <p class="eyebrow">Acesso compartilhado</p>
-          <h3>Novo usuário</h3>
+          <h3 id="syncUserDialogTitle">Novo usuário</h3>
         </div>
         <button class="icon-btn" type="button" data-close-dialog="syncUserDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
       </div>
+      <input type="hidden" id="syncUserEditingLogin" />
       <label>
         <span>Nome</span>
         <input id="syncUserNameInput" autocomplete="name" required />
@@ -542,11 +583,32 @@
         <input id="syncUserPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" required />
       </label>
       <div class="modal-actions">
+        <button class="danger-btn" type="button" id="deleteSyncUserBtn" data-icon="trash-2" hidden>Excluir</button>
         <span class="spacer"></span>
         <button class="secondary-btn" type="button" data-close-dialog="syncUserDialog">Cancelar</button>
-        <button class="primary-btn" type="submit" data-icon="plus">Cadastrar</button>
+        <button class="primary-btn" type="submit" id="saveSyncUserBtn" data-icon="plus">Cadastrar</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="modal compact-modal" id="registryDialog">
+    <div class="modal-card">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow">Cadastros da Feira</p>
+          <h3 id="registryDialogTitle">Categorias</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="registryDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+      </div>
+      <form class="registry-add-form" id="registryForm">
+        <label>
+          <span id="registryInputLabel">Nova categoria</span>
+          <input id="registryInput" autocomplete="off" required />
+        </label>
+        <button class="primary-btn" type="submit" data-icon="plus">Adicionar</button>
+      </form>
+      <div class="registry-list" id="registryList"></div>
+    </div>
   </dialog>
 
   <dialog class="modal audit-modal" id="auditDialog">

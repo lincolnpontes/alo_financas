@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.0.4';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SECURITY_KEY = 'alo_financas_security_v1';
 const SESSION_UNLOCK_KEY = 'alo_financas_unlocked_v1';
@@ -19,7 +19,7 @@ const EXPENSE_CATEGORIES = ['Casa', 'Cartao', 'Saude', 'Internet', 'Mercado', 'T
 const INCOME_CATEGORIES = ['Salario', 'Extra', 'Reembolso', 'Rendimento', 'Pix', 'Outros'];
 const ACCOUNT_TYPES = ['Conta corrente', 'Poupança', 'Investimento', 'Dinheiro', 'Carteira digital'];
 const FLOW_CATEGORIES = ['Familia', 'Trabalho', 'Reembolso', 'Emprestimo', 'Outros'];
-const DEFAULT_MARKET_CATEGORIES = ['Feira', 'Mercado', 'Limpeza', 'Higiene', 'Bebidas', 'Pet', 'Farmacia'];
+const DEFAULT_MARKET_CATEGORIES = ['Frios', 'Secos', 'Higiene', 'Limpeza', 'Hortifruti', 'Bebidas', 'Farmacia', 'Pet', 'Outros'];
 const OWNERS = ['Lincoln', 'Aryana', 'Casa'];
 
 const ICONS = {
@@ -64,7 +64,9 @@ let state = {
   month: currentMonth(),
   expenseFilter: 'all',
   marketFilter: 'all',
+  marketCategory: 'all',
   productSearch: '',
+  registryType: '',
   syncSetupOpen: false,
   deferredInstall: null,
   idleTimer: null
@@ -111,6 +113,7 @@ function bindEvents() {
   $('#orderForm').addEventListener('submit', saveOrderFromForm);
   $('#quantityForm').addEventListener('submit', saveQuantityFromForm);
   $('#syncUserForm').addEventListener('submit', saveSyncUserFromForm);
+  $('#registryForm').addEventListener('submit', saveRegistryEntry);
   $('#pinForm').addEventListener('submit', handlePinSubmit);
   $('#syncSetupForm').addEventListener('submit', handleSyncSetup);
   $('#syncLoginForm').addEventListener('submit', handleSyncLogin);
@@ -160,6 +163,30 @@ function handleDocumentClick(event) {
   const editProduct = button.closest('[data-edit-product]');
   if (editProduct) {
     openProductDialog(editProduct.dataset.id);
+    return;
+  }
+
+  const recordActions = button.closest('[data-record-actions]');
+  if (recordActions) {
+    openExpenseActions(recordActions.dataset.id);
+    return;
+  }
+
+  const productActions = button.closest('[data-product-actions]');
+  if (productActions) {
+    openProductActions(productActions.dataset.id);
+    return;
+  }
+
+  const editSyncUser = button.closest('[data-edit-sync-user]');
+  if (editSyncUser) {
+    openSyncUserDialog(editSyncUser.dataset.login);
+    return;
+  }
+
+  const deleteRegistry = button.closest('[data-delete-registry]');
+  if (deleteRegistry) {
+    deleteRegistryEntry(deleteRegistry.dataset.value);
     return;
   }
 
@@ -213,6 +240,11 @@ function handleDocumentClick(event) {
   if (button.id === 'deleteProductBtn') deleteCurrentProduct();
   if (button.id === 'openAuditBtn') $('#auditDialog').showModal();
   if (button.id === 'addSyncUserBtn') openSyncUserDialog();
+  if (button.id === 'deleteSyncUserBtn') deleteSyncUser();
+  if (button.id === 'quickStateBtn') runQuickStateAction();
+  if (button.id === 'quickEditBtn') runQuickEditAction();
+  if (button.id === 'manageCategoriesBtn') openRegistryDialog('categories');
+  if (button.id === 'manageSitesBtn') openRegistryDialog('sites');
   if (button.id === 'editSyncSetupBtn') {
     state.syncSetupOpen = !state.syncSetupOpen;
     renderSyncStatus();
@@ -244,6 +276,16 @@ function handleDocumentChange(event) {
 
   if (event.target.id === 'recordRecurring') {
     $('#recordKeepValueWrap').hidden = !event.target.checked;
+  }
+
+  if (event.target.id === 'marketStatusFilter') {
+    state.marketFilter = event.target.value || 'all';
+    renderShoppingList();
+  }
+
+  if (event.target.id === 'marketCategoryFilter') {
+    state.marketCategory = event.target.value || 'all';
+    renderShoppingList();
   }
 
   if (event.target.id === 'lockAfterSelect') {
@@ -285,6 +327,9 @@ function render() {
 function renderDashboard() {
   const dashboardMonth = currentMonth();
   const totals = calculateTotals(dashboardMonth);
+  const previousPending = visible(db.finances.expenses)
+    .filter(item => item.month < dashboardMonth && item.status !== 'paid');
+  const pendingWithHistory = totals.expenseOpen + sum(previousPending, 'amount');
   const dueSoon = visible(db.finances.expenses)
     .filter(item => item.month === dashboardMonth && item.status !== 'paid')
     .sort((a, b) => Number(a.dueDay || 0) - Number(b.dueDay || 0))
@@ -297,7 +342,7 @@ function renderDashboard() {
   $('#metricGrid').innerHTML = [
     metricEmoji('Receitas', totals.incomeTotal, 'Previsto no mês', '💲', 'income'),
     metricEmoji('Despesas', totals.expenseTotal, 'Total do mês', '💲', 'expense'),
-    metricEmoji('Pendente', totals.expenseOpen, 'Ainda falta pagar', '⚠️', 'pending'),
+    metricEmoji('Pendente', pendingWithHistory, previousPending.length ? `Mês atual + ${previousPending.length} pendência${previousPending.length === 1 ? '' : 's'} anterior${previousPending.length === 1 ? '' : 'es'}` : 'Ainda falta pagar', '⚠️', 'pending'),
     metricEmoji('Poupança e contas', totals.accountTotal, 'Patrimônio disponível', '🐖', 'savings'),
     metricEmoji('Saldo do mês', totals.monthBalance, totals.monthBalance >= 0 ? 'Sobra prevista' : 'Falta prevista', '💰', totals.monthBalance >= 0 ? 'balance' : 'expense'),
     metricEmoji('Lista da feira', neededItems.length, 'Itens pendentes', '🛒', 'market', false)
@@ -379,12 +424,21 @@ function renderDebtList() {
 function renderMarket() {
   renderQuickOptions();
   renderShoppingList();
-  setSegmentActive('#marketFilter', 'marketFilter', state.marketFilter);
+  $('#marketStatusFilter').value = state.marketFilter;
+  $('#marketCategoryFilter').value = state.marketCategory;
 }
 
 function renderQuickOptions() {
-  $('#categoryOptions').innerHTML = marketCategories()
+  const categories = marketCategories();
+  $('#categoryOptions').innerHTML = categories
     .map(category => `<option value="${escapeAttr(category)}"></option>`)
+    .join('');
+  $('#marketCategoryFilter').innerHTML = [['all', 'Todas']].concat(categories.map(category => [category, category]))
+    .map(([value, label]) => `<option value="${escapeAttr(value)}">${escapeHTML(label)}</option>`)
+    .join('');
+  $('#marketCategoryFilter').value = state.marketCategory;
+  $('#siteOptions').innerHTML = (db.pantry.sites || [])
+    .map(site => `<option value="${escapeAttr(site)}"></option>`)
     .join('');
 }
 
@@ -392,6 +446,7 @@ function renderShoppingList() {
   const query = normalizeText(state.productSearch);
   const products = visible(db.pantry.products)
     .filter(product => !query || normalizeText([product.name, product.category, product.goodBrands, product.badBrands].join(' ')).includes(query))
+    .filter(product => state.marketCategory === 'all' || product.category === state.marketCategory)
     .sort((a, b) => a.name.localeCompare(b.name));
   const latestByProduct = new Map();
   visible(db.pantry.list).forEach(item => {
@@ -446,7 +501,10 @@ function renderSyncUsers() {
             <strong>${escapeHTML(user.name || user.login)}</strong>
             <small>@${escapeHTML(user.login)}${user.role === 'owner' ? ' · administrador' : ''}</small>
           </div>
-          ${syncState.user?.login === user.login ? '<span class="status-pill good">Você</span>' : ''}
+          <div class="user-row-actions">
+            ${syncState.user?.login === user.login ? '<span class="status-pill good">Você</span>' : ''}
+            ${isOwner ? `<button class="icon-btn" type="button" data-edit-sync-user data-login="${escapeAttr(user.login)}" title="Editar usuário" aria-label="Editar ${escapeAttr(user.name || user.login)}">${iconSvg('edit-3')}</button>` : ''}
+          </div>
         </div>
       `).join('')
     : emptyState(syncState.user ? 'Atualize a lista de usuários.' : 'Entre na sincronização para ver os usuários.');
@@ -559,17 +617,28 @@ function stackRow(title, subtitle, right, icon, tone = '') {
 
 function financeRow(type, item) {
   const config = rowConfig(type, item);
-  const badge = statusBadge(type, item.status);
+  const expenseState = type === 'expense' ? expenseVisualState(item) : '';
+  const badge = type === 'expense'
+    ? `<span class="badge ${expenseState}">${expenseState === 'paid' ? 'Pago' : expenseState === 'overdue' ? 'Vencida' : 'Pendente'}</span>`
+    : statusBadge(type, item.status);
   const amount = type === 'account' ? item.balance : item.amount;
   const amountDisplay = amount == null ? 'Definir valor' : formatMoney(amount);
   const subtitle = config.subtitle;
-  const cycle = type !== 'account'
+  const cycle = type !== 'account' && type !== 'expense'
     ? `<button class="icon-btn" type="button" title="${escapeAttr(config.cycleTitle)}" aria-label="${escapeAttr(config.cycleTitle)}" data-cycle-record="${type}" data-id="${escapeAttr(item.id)}">${iconSvg(config.cycleIcon)}</button>`
     : '';
+  const leadingIcon = type === 'expense'
+    ? `<button class="row-icon expense-action-trigger ${expenseState}" type="button" data-record-actions data-id="${escapeAttr(item.id)}" title="Ações da despesa" aria-label="Abrir ações de ${escapeAttr(item.title)}">${iconSvg(config.icon)}</button>`
+    : `<span class="row-icon ${config.tone}">${iconSvg(config.icon)}</span>`;
+  const actions = type === 'expense' ? '' : `
+      <div class="row-actions">
+        ${cycle}
+        <button class="icon-btn" type="button" title="Editar" aria-label="Editar" data-edit-record="${type}" data-id="${escapeAttr(item.id)}">${iconSvg('edit-3')}</button>
+      </div>`;
 
   return `
-    <div class="data-row">
-      <span class="row-icon ${config.tone}">${iconSvg(config.icon)}</span>
+    <div class="data-row ${type === 'expense' ? `expense-row expense-${expenseState}` : ''}">
+      ${leadingIcon}
       <div class="data-main">
         <strong>${escapeHTML(config.title)}</strong>
         <small>${escapeHTML(subtitle)}</small>
@@ -578,21 +647,16 @@ function financeRow(type, item) {
         <span class="${amount == null ? 'amount-empty' : ''}">${escapeHTML(amountDisplay)}</span>
         ${badge}
       </div>
-      <div class="row-actions">
-        ${cycle}
-        <button class="icon-btn" type="button" title="Editar" aria-label="Editar" data-edit-record="${type}" data-id="${escapeAttr(item.id)}">${iconSvg('edit-3')}</button>
-      </div>
+      ${actions}
     </div>
   `;
 }
 
 function rowConfig(type, item) {
   if (type === 'expense') {
-    const recurringLabel = item.recurring ? ' · fixa todo mês' : '';
-    const paymentLabel = item.paymentMethod ? ` · ${item.paymentMethod}` : '';
     return {
       title: item.title,
-      subtitle: `${item.category || 'Despesa'} · dia ${item.dueDay || '-'}${paymentLabel} · ${item.owner || 'Casa'}${recurringLabel}`,
+      subtitle: `Dia ${String(item.dueDay || 1).padStart(2, '0')} - ${item.paymentMethod || 'Não informado'}`,
       icon: 'receipt',
       tone: item.status === 'paid' ? '' : item.status === 'debt' ? 'danger' : 'warning',
       cycleTitle: item.status === 'paid' ? 'Marcar aberto' : 'Marcar pago',
@@ -640,6 +704,14 @@ function rowConfig(type, item) {
   };
 }
 
+function expenseVisualState(item) {
+  if (item.status === 'paid') return 'paid';
+  const [year, month] = String(item.month || currentMonth()).split('-').map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  const dueDate = new Date(year, month - 1, Math.min(Number(item.dueDay || 1), lastDay), 23, 59, 59, 999);
+  return dueDate < new Date() ? 'overdue' : 'pending';
+}
+
 function shoppingRow(entry) {
   const { product, item } = entry;
   const status = item?.status || 'stocked';
@@ -658,14 +730,17 @@ function shoppingRow(entry) {
   const plusButton = item
     ? `<button type="button" data-quantity-change="1" data-id="${escapeAttr(item.id)}" title="Aumentar quantidade" aria-label="Aumentar quantidade de ${escapeAttr(product.name)}">${iconSvg('plus')}</button>`
     : `<button type="button" data-add-product-list="${escapeAttr(product.id)}" title="Adicionar à lista" aria-label="Adicionar ${escapeAttr(product.name)} à lista">${iconSvg('plus')}</button>`;
+  const tickButton = item
+    ? `<button class="quantity-tick ${needed ? 'is-selected' : ''}" type="button" data-list-status="needed" data-id="${escapeAttr(item.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>`
+    : `<button class="quantity-tick" type="button" data-add-product-list="${escapeAttr(product.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>`;
   const statusControls = item ? `
-    ${!needed ? `<button class="market-action need-action" type="button" data-list-status="needed" data-id="${escapeAttr(item.id)}" title="Voltar para pendente">${iconSvg('undo')}<span>Voltar</span></button>` : ''}
-    ${!ordered ? `<button class="market-action order-action" type="button" data-list-status="ordered" data-id="${escapeAttr(item.id)}" title="Registrar pedido">${iconSvg('send')}<span>Pedir</span></button>` : ''}
+    ${needed ? `<button class="market-action order-action" type="button" data-list-status="ordered" data-id="${escapeAttr(item.id)}" title="Registrar pedido">${iconSvg('send')}<span>Pedir</span></button>` : ''}
     ${!bought ? `<button class="market-action bought-action" type="button" data-list-status="bought" data-id="${escapeAttr(item.id)}" title="Marcar como comprado">${iconSvg('check')}<span>Comprei</span></button>` : ''}
   ` : '';
+  const actionsMarkup = statusControls.trim() ? `<div class="shopping-actions">${statusControls}</div>` : '';
   return `
     <article class="shopping-item status-${escapeAttr(status)}">
-      <span class="product-emoji" aria-hidden="true">${productEmoji(product)}</span>
+      <button class="product-emoji" type="button" data-product-actions data-id="${escapeAttr(product.id)}" title="Ações de ${escapeAttr(product.name)}" aria-label="Abrir ações de ${escapeAttr(product.name)}">${productEmoji(product)}</button>
       <div class="data-main">
         <strong>${escapeHTML(product.name)}</strong>
         <small>${escapeHTML(`${product.category || 'Mercado'}${item?.site ? ` · ${item.site}` : ''}`)}</small>
@@ -675,11 +750,9 @@ function shoppingRow(entry) {
         ${minusButton}
         ${quantityButton}
         ${plusButton}
+        ${tickButton}
       </div>
-      <div class="shopping-actions">
-        ${statusControls}
-        <button class="market-action edit-action" type="button" title="Editar produto" aria-label="Editar produto" data-edit-product data-id="${escapeAttr(product.id)}">${iconSvg('edit-3')}</button>
-      </div>
+      ${actionsMarkup}
     </article>
   `;
 }
@@ -904,7 +977,7 @@ function openProductDialog(id = '') {
   $('#productName').value = product?.name || '';
   $('#productCategory').value = product?.category || 'Mercado';
   $('#productDefaultQty').value = product?.defaultQty ? formatNumberInput(product.defaultQty) : '';
-  $('#productUnit').value = product?.unit || 'un';
+  $('#productUnit').value = product?.units || product?.unit || 'un';
   $('#productGoodBrands').value = product?.goodBrands || '';
   $('#productBadBrands').value = product?.badBrands || '';
   $('#productSites').value = product?.sites || '';
@@ -927,7 +1000,9 @@ function saveProductFromForm(event) {
   product.name = name;
   product.category = $('#productCategory').value.trim() || 'Mercado';
   product.defaultQty = parseDecimal($('#productDefaultQty').value) || 1;
-  product.unit = $('#productUnit').value.trim() || 'un';
+  const units = parseRegistryValues($('#productUnit').value);
+  product.units = units.join('; ');
+  product.unit = units[0] || 'un';
   product.goodBrands = $('#productGoodBrands').value.trim();
   product.badBrands = $('#productBadBrands').value.trim();
   product.sites = $('#productSites').value.trim();
@@ -1045,6 +1120,9 @@ function openQuantityDialog(id) {
   $('#quantityDialogTitle').textContent = item.name;
   $('#quantityValueInput').value = formatQuantity(item.qty || 1);
   $('#quantityUnitInput').value = item.unit || 'un';
+  const product = db.pantry.products.find(entry => entry.id === item.productId);
+  const units = Array.from(new Set(['un', 'kg', 'g', 'L', 'ml', 'pct', 'caixa', 'bandeja'].concat(parseRegistryValues(product?.units || product?.unit || ''))));
+  $('#unitOptions').innerHTML = units.map(unit => `<option value="${escapeAttr(unit)}"></option>`).join('');
   $('#quantityDialog').showModal();
   $('#quantityValueInput').focus();
 }
@@ -1100,6 +1178,47 @@ function saveOrderFromForm(event) {
   saveData();
   closeDialog('orderDialog');
   toast('Pedido registrado.', 'good');
+}
+
+function openExpenseActions(id) {
+  const item = db.finances.expenses.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item) return;
+  $('#quickActionsType').value = 'expense';
+  $('#quickActionsId').value = item.id;
+  $('#quickActionsEyebrow').textContent = 'Despesa';
+  $('#quickActionsTitle').textContent = item.title;
+  $('#quickStateBtn').hidden = false;
+  $('#quickStateBtn').innerHTML = iconSvg(item.status === 'paid' ? 'undo' : 'check') + escapeHTML(item.status === 'paid' ? 'Desfazer pagamento' : 'Marcar como pago');
+  $('#quickEditBtn').innerHTML = iconSvg('edit-3') + 'Editar';
+  $('#quickActionsDialog').showModal();
+}
+
+function openProductActions(id) {
+  const product = db.pantry.products.find(entry => entry.id === id && !entry.deletedAt);
+  if (!product) return;
+  $('#quickActionsType').value = 'product';
+  $('#quickActionsId').value = product.id;
+  $('#quickActionsEyebrow').textContent = 'Produto';
+  $('#quickActionsTitle').textContent = product.name;
+  $('#quickStateBtn').hidden = true;
+  $('#quickEditBtn').innerHTML = iconSvg('edit-3') + 'Editar';
+  $('#quickActionsDialog').showModal();
+}
+
+function runQuickStateAction() {
+  const type = $('#quickActionsType').value;
+  const id = $('#quickActionsId').value;
+  if (type !== 'expense') return;
+  cycleRecordStatus('expense', id);
+  closeDialog('quickActionsDialog');
+}
+
+function runQuickEditAction() {
+  const type = $('#quickActionsType').value;
+  const id = $('#quickActionsId').value;
+  closeDialog('quickActionsDialog');
+  if (type === 'expense') openRecordDialog('expense', id);
+  if (type === 'product') openProductDialog(id);
 }
 
 function cycleRecordStatus(type, id) {
@@ -1268,7 +1387,61 @@ function accountOptions() {
 }
 
 function marketCategories() {
-  return Array.from(new Set(DEFAULT_MARKET_CATEGORIES.concat(db.pantry.categories || [], visible(db.pantry.products).map(product => product.category).filter(Boolean)))).sort((a, b) => a.localeCompare(b));
+  return Array.from(new Set((db.pantry.categories || []).concat(visible(db.pantry.products).map(product => product.category).filter(Boolean)))).sort((a, b) => a.localeCompare(b));
+}
+
+function openRegistryDialog(type) {
+  state.registryType = type;
+  const categories = type === 'categories';
+  $('#registryDialogTitle').textContent = categories ? 'Categorias' : 'Sites e lojas';
+  $('#registryInputLabel').textContent = categories ? 'Nova categoria' : 'Novo site ou loja';
+  $('#registryInput').placeholder = categories ? 'Frios; Secos; Hortifruti' : 'Amazon; Shopee; Mercado Livre';
+  $('#registryInput').value = '';
+  renderRegistryList();
+  $('#registryDialog').showModal();
+  $('#registryInput').focus();
+}
+
+function renderRegistryList() {
+  const values = state.registryType === 'sites' ? db.pantry.sites || [] : db.pantry.categories || [];
+  $('#registryList').innerHTML = values.length
+    ? values.slice().sort((a, b) => a.localeCompare(b)).map(value => `
+        <div class="registry-row">
+          <span>${escapeHTML(value)}</span>
+          <button class="icon-btn" type="button" data-delete-registry data-value="${escapeAttr(value)}" title="Excluir" aria-label="Excluir ${escapeAttr(value)}">${iconSvg('trash-2')}</button>
+        </div>
+      `).join('')
+    : emptyState('Nenhum cadastro ainda.');
+}
+
+function saveRegistryEntry(event) {
+  event.preventDefault();
+  const values = parseRegistryValues($('#registryInput').value);
+  if (!values.length) return;
+  const key = state.registryType === 'sites' ? 'sites' : 'categories';
+  db.pantry[key] = Array.from(new Set((db.pantry[key] || []).concat(values)));
+  addAudit('cadastrou', key === 'sites' ? 'sites da feira' : 'categorias da feira', values.join(', '));
+  saveData();
+  $('#registryInput').value = '';
+  renderRegistryList();
+  renderQuickOptions();
+}
+
+function deleteRegistryEntry(value) {
+  const key = state.registryType === 'sites' ? 'sites' : 'categories';
+  if (key === 'categories' && visible(db.pantry.products).some(product => product.category === value)) {
+    return toast('Esta categoria ainda está sendo usada por um produto.', 'error');
+  }
+  db.pantry[key] = (db.pantry[key] || []).filter(entry => entry !== value);
+  if (key === 'categories' && state.marketCategory === value) state.marketCategory = 'all';
+  addAudit('excluiu', key === 'sites' ? 'o site da feira' : 'a categoria da feira', value);
+  saveData();
+  renderRegistryList();
+  renderQuickOptions();
+}
+
+function parseRegistryValues(value) {
+  return String(value || '').split(';').map(entry => entry.trim()).filter(Boolean);
 }
 
 function saveData(options = {}) {
@@ -1334,6 +1507,7 @@ function defaultDB() {
     },
     pantry: {
       categories: DEFAULT_MARKET_CATEGORIES.slice(),
+      sites: [],
       products: seedProducts,
       list: []
     },
@@ -1360,6 +1534,7 @@ function normalizeDB(input) {
     normalized.pantry[key] = Array.isArray(normalized.pantry[key]) ? normalized.pantry[key].map(normalizeItem) : [];
   });
   normalized.pantry.categories = Array.isArray(normalized.pantry.categories) ? normalized.pantry.categories : DEFAULT_MARKET_CATEGORIES.slice();
+  normalized.pantry.sites = Array.isArray(normalized.pantry.sites) ? normalized.pantry.sites : [];
   normalized.audit = Array.isArray(normalized.audit) ? normalized.audit.map(normalizeItem) : [];
   return normalized;
 }
@@ -1763,11 +1938,19 @@ async function refreshSyncUsers() {
   }
 }
 
-function openSyncUserDialog() {
+function openSyncUserDialog(login = '') {
   if (syncState.user?.role !== 'owner') return toast('Entre como administrador para cadastrar usuários.', 'error');
-  $('#syncUserNameInput').value = '';
-  $('#syncUserLoginInput').value = '';
+  const user = login ? syncState.users.find(entry => entry.login === login) : null;
+  $('#syncUserDialogTitle').textContent = user ? 'Editar usuário' : 'Novo usuário';
+  $('#syncUserEditingLogin').value = user?.login || '';
+  $('#syncUserNameInput').value = user?.name || '';
+  $('#syncUserLoginInput').value = user?.login || '';
+  $('#syncUserLoginInput').disabled = Boolean(user);
   $('#syncUserPinInput').value = '';
+  $('#syncUserPinInput').required = !user;
+  $('#syncUserPinInput').placeholder = user ? 'Deixe vazio para manter o PIN' : '';
+  $('#saveSyncUserBtn').innerHTML = iconSvg(user ? 'check' : 'plus') + (user ? 'Salvar alterações' : 'Cadastrar');
+  $('#deleteSyncUserBtn').hidden = !user || user.login === syncState.user.login || user.role === 'owner';
   $('#syncUserDialog').showModal();
   $('#syncUserNameInput').focus();
 }
@@ -1776,20 +1959,38 @@ async function saveSyncUserFromForm(event) {
   event.preventDefault();
   if (syncState.user?.role !== 'owner') return toast('Apenas o administrador pode cadastrar usuários.', 'error');
   const name = $('#syncUserNameInput').value.trim();
-  const login = $('#syncUserLoginInput').value.trim().toLowerCase();
+  const editing = Boolean($('#syncUserEditingLogin').value);
+  const login = ($('#syncUserEditingLogin').value || $('#syncUserLoginInput').value).trim().toLowerCase();
   const pin = $('#syncUserPinInput').value.trim();
   if (!name || !/^[a-z0-9._-]{3,40}$/.test(login)) return toast('Informe nome e login válidos.', 'error');
-  if (!/^\d{4,8}$/.test(pin)) return toast('Use um PIN de 4 a 8 números.', 'error');
+  if ((!editing || pin) && !/^\d{4,8}$/.test(pin)) return toast('Use um PIN de 4 a 8 números.', 'error');
   try {
     const payload = await syncRequest('upsertUser', { name, login, pin });
     syncState.users = Array.isArray(payload.users) ? payload.users : syncState.users;
-    addAudit('cadastrou', 'o usuário', name);
+    addAudit(editing ? 'alterou' : 'cadastrou', 'o usuário', name);
     saveData();
     closeDialog('syncUserDialog');
     renderSyncUsers();
-    toast('Usuário cadastrado.', 'good');
+    toast(editing ? 'Usuário atualizado.' : 'Usuário cadastrado.', 'good');
   } catch (error) {
     toast(error.message || 'Falha ao cadastrar usuário.', 'error');
+  }
+}
+
+async function deleteSyncUser() {
+  const login = $('#syncUserEditingLogin').value;
+  const user = syncState.users.find(entry => entry.login === login);
+  if (!user || !confirm(`Excluir o acesso de ${user.name || user.login}?`)) return;
+  try {
+    const payload = await syncRequest('deactivateUser', { login });
+    syncState.users = Array.isArray(payload.users) ? payload.users : syncState.users;
+    addAudit('removeu', 'o usuário', user.name || user.login);
+    saveData();
+    closeDialog('syncUserDialog');
+    renderSyncUsers();
+    toast('Usuário removido.', 'good');
+  } catch (error) {
+    toast(error.message || 'Falha ao remover usuário.', 'error');
   }
 }
 
@@ -1829,6 +2030,7 @@ function mergeDB(remote, local) {
   merged.pantry.list = mergeArray(remote.pantry.list, local.pantry.list);
   merged.audit = mergeArray(remote.audit, local.audit);
   merged.pantry.categories = Array.from(new Set([...(remote.pantry.categories || []), ...(local.pantry.categories || [])]));
+  merged.pantry.sites = Array.from(new Set([...(remote.pantry.sites || []), ...(local.pantry.sites || [])]));
   merged.updatedAt = Math.max(Number(remote.updatedAt || 0), Number(local.updatedAt || 0), Date.now());
   return merged;
 }

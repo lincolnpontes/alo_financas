@@ -1699,6 +1699,298 @@ body {
   }
 }
 
+/* Dense interaction pass for 1.0.4 */
+.finance-month-switcher .month-display {
+  min-height: 46px;
+  padding: 4px 14px;
+}
+
+.finance-month-switcher .month-display::after {
+  content: none;
+}
+
+.finance-month-switcher .month-display strong {
+  font-size: 1.08rem;
+}
+
+.expense-row {
+  min-height: 54px;
+  padding: 7px 9px;
+  gap: 8px;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.expense-row .data-main strong {
+  font-size: 0.9rem;
+}
+
+.expense-row .data-main small {
+  margin-top: 1px;
+  font-size: 0.72rem;
+}
+
+.expense-row .row-amount {
+  gap: 3px;
+  min-width: 94px;
+  font-size: 0.86rem;
+}
+
+.expense-row.expense-paid {
+  border-color: #b9dfc9;
+  background: #edf9f2;
+}
+
+.expense-row.expense-pending {
+  border-color: #efd4a8;
+  background: #fff7e9;
+}
+
+.expense-row.expense-overdue {
+  border-color: #edb9b5;
+  background: #fff0ef;
+}
+
+.expense-action-trigger {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.expense-action-trigger.paid {
+  color: #17603f;
+  background: #d7f0e1;
+  border-color: #a9d4ba;
+}
+
+.expense-action-trigger.pending {
+  color: #7b490f;
+  background: #ffe9c5;
+  border-color: #e5bf83;
+}
+
+.expense-action-trigger.overdue {
+  color: #862f2f;
+  background: #f9d8d6;
+  border-color: #e3aaa7;
+}
+
+.badge.overdue {
+  color: #812b2b;
+  background: #f4cfcc;
+}
+
+.action-modal {
+  width: min(430px, calc(100vw - 24px));
+}
+
+.quick-action-list {
+  display: grid;
+  gap: 8px;
+}
+
+.quick-action-list .secondary-btn {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 48px;
+}
+
+.market-select-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-select {
+  position: relative;
+  display: block;
+}
+
+.filter-select > span {
+  position: absolute;
+  left: 11px;
+  top: 6px;
+  z-index: 1;
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.filter-select select {
+  min-width: 146px;
+  min-height: 44px;
+  padding: 16px 34px 4px 11px;
+  color: var(--ink);
+  background-color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.shopping-grid {
+  gap: 8px;
+}
+
+.shopping-item {
+  min-height: 104px;
+  padding: 10px;
+  gap: 9px;
+  box-shadow: 0 5px 16px rgba(24, 48, 41, 0.05);
+}
+
+.shopping-item .data-main strong {
+  font-size: 0.92rem;
+}
+
+.shopping-item .data-main small {
+  font-size: 0.69rem;
+}
+
+.product-emoji {
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.quantity-stepper {
+  grid-template-columns: 32px minmax(48px, auto) 32px 34px;
+  min-height: 36px;
+}
+
+.quantity-stepper button {
+  min-height: 36px;
+}
+
+.quantity-stepper .quantity-tick {
+  color: #67766f;
+  border-left: 1px solid var(--line);
+  background: #f2f6f4;
+}
+
+.quantity-stepper .quantity-tick.is-selected {
+  color: #8a510e;
+  background: #ffe1b1;
+}
+
+.shopping-actions {
+  grid-column: 2 / -1;
+  justify-content: flex-end;
+  margin-top: 0;
+  padding-top: 5px;
+}
+
+.shopping-actions .market-action {
+  min-height: 31px;
+  font-size: 0.7rem;
+}
+
+.user-row-actions {
+  display: flex !important;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 6px !important;
+}
+
+.user-row-actions .icon-btn {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+}
+
+.registry-panel {
+  border-top: 4px solid #3b8b7e;
+}
+
+.settings-command-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-command-list .secondary-btn {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.registry-add-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.registry-list {
+  display: grid;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.registry-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 6px 0;
+  border-bottom: 1px solid #e1e9e5;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.registry-row:last-child {
+  border-bottom: 0;
+}
+
+.registry-row .icon-btn {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  color: var(--red);
+}
+
+@media (max-width: 760px) {
+  .market-filter-row,
+  .market-select-filters {
+    width: 100%;
+  }
+
+  .market-select-filters .filter-select {
+    flex: 1;
+  }
+
+  .filter-select select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .shopping-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .quantity-stepper {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 520px) {
+  .market-select-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .registry-add-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Premium refinement for 1.0.2 */
 .finance-month-switcher {
   position: relative;
