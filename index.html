@@ -59,6 +59,14 @@
             </div>
             <div class="stack-list" id="accountPreview"></div>
           </article>
+
+          <article class="panel">
+            <div class="panel-title">
+              <h3>Pendências</h3>
+              <button class="ghost-btn" type="button" data-view-jump="tasks">Abrir</button>
+            </div>
+            <div class="stack-list" id="taskPreview"></div>
+          </article>
         </div>
       </section>
 
@@ -164,6 +172,7 @@
                 </select>
               </label>
             </div>
+            <button class="icon-btn market-clear-button" type="button" id="clearRecentBoughtBtn" title="Apagar itens comprados nos últimos 7 dias" aria-label="Apagar itens comprados nos últimos 7 dias" data-icon="trash-2"></button>
           </div>
           <div class="shopping-grid" id="shoppingList"></div>
         </article>
@@ -205,7 +214,6 @@
           </div>
           <div class="settings-version-bar">
             <span class="status-pill" id="versionPill">v1</span>
-            <span id="appUpdatedLabel">Atualizado agora</span>
             <button class="icon-btn" type="button" id="forceUpdateBtn" title="Forçar atualização do aplicativo" aria-label="Forçar atualização do aplicativo" data-icon="refresh-cw"></button>
           </div>
         </div>

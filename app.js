@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.9';
+const APP_VERSION = '1.0.10';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -304,6 +304,7 @@ function handleDocumentClick(event) {
   if (button.id === 'manageSitesBtn') openRegistryDialog('sites');
   if (button.id === 'exportBtn') exportData();
   if (button.id === 'importBtn') $('#importFileInput').click();
+  if (button.id === 'clearRecentBoughtBtn') clearRecentBoughtItems();
   if (button.id === 'accessLoginBtn') {
     event.preventDefault();
     $('#accessLoginForm').requestSubmit();
@@ -396,7 +397,7 @@ function renderDashboard() {
   const dashboardMonth = currentMonth();
   const totals = calculateTotals(dashboardMonth);
   const previousPending = visible(db.finances.expenses)
-    .filter(item => item.month < dashboardMonth && item.status !== 'paid');
+    .filter(item => item.month < dashboardMonth && item.status !== 'paid' && !isCardExpense(item));
   const pendingWithHistory = totals.expenseOpen + sum(previousPending, 'amount');
   const dueSoon = visible(db.finances.expenses)
     .filter(item => item.month === dashboardMonth && item.status !== 'paid')
@@ -406,14 +407,18 @@ function renderDashboard() {
     .filter(item => item.status !== 'bought')
     .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))
     .slice(0, 6);
+  const pendingTasks = visible(db.tasks)
+    .filter(item => item.status !== 'completed')
+    .sort((a, b) => String(a.dueDate || '9999-12-31').localeCompare(String(b.dueDate || '9999-12-31')))
+    .slice(0, 5);
 
   $('#metricGrid').innerHTML = [
-    metricEmoji('Receitas', totals.incomeTotal, 'Previsto no mês', '💲', 'income'),
-    metricEmoji('Despesas', totals.expenseTotal, 'Total do mês', '💲', 'expense'),
-    metricEmoji('Pendente', pendingWithHistory, previousPending.length ? `Mês atual + ${previousPending.length} pendência${previousPending.length === 1 ? '' : 's'} anterior${previousPending.length === 1 ? '' : 'es'}` : 'Ainda falta pagar', '⚠️', 'pending'),
-    metricEmoji('Poupança e contas', totals.accountTotal, 'Patrimônio disponível', '🐖', 'savings'),
-    metricEmoji('Saldo do mês', totals.monthBalance, totals.monthBalance >= 0 ? 'Sobra prevista' : 'Falta prevista', '💰', totals.monthBalance >= 0 ? 'balance' : 'expense'),
-    metricEmoji('Lista da feira', neededItems.length, 'Itens pendentes', '🛒', 'market', false)
+    metricEmoji('Receitas', totals.incomeTotal, '', '💲', 'income'),
+    metricEmoji('Despesas', totals.expenseTotal, '', '💲', 'expense'),
+    metricEmoji('Pendente', pendingWithHistory, '', '⚠️', 'pending'),
+    metricEmoji('Poupança e contas', totals.accountTotal, '', '🐖', 'savings'),
+    metricEmoji('Saldo do mês', totals.monthBalance, '', '💰', totals.monthBalance >= 0 ? 'balance' : 'expense'),
+    metricEmoji('Lista da feira', neededItems.length, '', '🛒', 'market', false)
   ].join('');
 
   $('#upcomingList').innerHTML = dueSoon.length
@@ -431,6 +436,13 @@ function renderDashboard() {
   $('#accountPreview').innerHTML = accounts.length
     ? accounts.map(item => stackRow(item.name, item.type || 'Conta', formatMoney(item.balance), 'piggy-bank', '')).join('')
     : emptyState('Nenhuma conta cadastrada.');
+
+  $('#taskPreview').innerHTML = pendingTasks.length
+    ? pendingTasks.map(item => {
+        const tone = taskVisualState(item) === 'overdue' ? 'danger' : 'warning';
+        return stackRow(item.title, `Prazo ${dateOrDash(item.dueDate)}`, item.owner || 'Todos', 'calendar-days', tone);
+      }).join('')
+    : emptyState('Nenhuma pendência aberta.');
 }
 
 function renderFinances() {
@@ -552,6 +564,7 @@ function renderMarket() {
   renderShoppingList();
   $('#marketStatusFilter').value = state.marketFilter;
   $('#marketCategoryFilter').value = state.marketCategory;
+  $('#clearRecentBoughtBtn').disabled = recentBoughtItems().length === 0;
 }
 
 function renderQuickOptions() {
@@ -606,7 +619,6 @@ function renderShoppingList() {
 
 function renderSettings() {
   $('#versionPill').textContent = `v${APP_VERSION}`;
-  $('#appUpdatedLabel').textContent = `Atualizado ${shortDateTime(db.updatedAt)}`;
   renderSyncUsers();
   renderAudit();
 }
@@ -685,7 +697,7 @@ function metric(label, value, helper, icon, tone = '', currency = true) {
         <small>${escapeHTML(label)}</small>
         <strong>${escapeHTML(display)}</strong>
       </div>
-      <small>${escapeHTML(helper)}</small>
+      ${helper ? `<small>${escapeHTML(helper)}</small>` : ''}
     </article>
   `;
 }
@@ -699,7 +711,7 @@ function metricEmoji(label, value, helper, emoji, tone = '', currency = true) {
         <small>${escapeHTML(label)}</small>
         <strong>${escapeHTML(display)}</strong>
       </div>
-      <small>${escapeHTML(helper)}</small>
+      ${helper ? `<small>${escapeHTML(helper)}</small>` : ''}
     </article>
   `;
 }
@@ -796,7 +808,7 @@ function rowConfig(type, item) {
   if (type === 'account') {
     return {
       title: item.name,
-      subtitle: item.type || 'Conta',
+      subtitle: `${item.type || 'Conta'} - atualizado ${shortDate(item.updatedAt || item.createdAt)}`,
       icon: 'piggy-bank',
       tone: '',
       cycleTitle: '',
@@ -853,7 +865,7 @@ function shoppingRow(entry) {
         <button class="quantity-tick" type="button" data-mark-product-needed="${escapeAttr(product.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>
       </div>`;
   return `
-    <article class="shopping-item status-${escapeAttr(status)}" data-product-id="${escapeAttr(product.id)}">
+    <article class="shopping-item status-${escapeAttr(status)} ${item ? 'has-request' : ''}" data-product-id="${escapeAttr(product.id)}">
       <button class="product-emoji" type="button" data-product-actions data-id="${escapeAttr(product.id)}" data-list-id="${escapeAttr(item?.id || '')}" title="Ações de ${escapeAttr(product.name)}" aria-label="Abrir ações de ${escapeAttr(product.name)}">${productEmoji(product)}</button>
       <div class="data-main">
         <strong>${escapeHTML(product.name)}</strong>
@@ -936,8 +948,8 @@ function calculateTotals(month = state.month) {
   const debts = visible(db.finances.debts);
 
   const expenseTotal = sum(expenses, 'amount');
-  const expensePaid = sum(expenses.filter(item => item.status === 'paid'), 'amount');
-  const expenseOpen = sum(expenses.filter(item => item.status !== 'paid'), 'amount');
+  const expensePaid = sum(expenses.filter(item => item.status === 'paid' && !isCardExpense(item)), 'amount');
+  const expenseOpen = sum(expenses.filter(item => item.status !== 'paid' && !isCardExpense(item)), 'amount');
   const incomeTotal = sum(incomes, 'amount');
   const incomeReceived = sum(incomes.filter(item => item.status === 'received'), 'amount');
   const incomeOpen = sum(incomes.filter(item => item.status !== 'received'), 'amount');
@@ -957,6 +969,10 @@ function calculateTotals(month = state.month) {
     debtOpen,
     monthBalance: incomeTotal - expenseTotal
   };
+}
+
+function isCardExpense(item) {
+  return normalizeText(item?.paymentMethod) === 'cartao';
 }
 
 function openRecordDialog(type, id = '') {
@@ -1592,6 +1608,24 @@ function deleteShoppingOrder(id) {
   addAudit('excluiu', 'o pedido da feira', item.name);
   saveData();
   toast('Pedido excluído.', 'good');
+}
+
+function recentBoughtItems() {
+  const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
+  return visible(db.pantry.list).filter(item => {
+    const completedAt = Number(item.boughtAt || item.updatedAt || 0);
+    return item.status === 'bought' && completedAt >= cutoff;
+  });
+}
+
+function clearRecentBoughtItems() {
+  const items = recentBoughtItems();
+  if (!items.length) return toast('Nenhum item comprado nos últimos 7 dias.', 'good');
+  if (!confirm(`Apagar ${items.length} ${items.length === 1 ? 'item comprado' : 'itens comprados'} nos últimos 7 dias?`)) return;
+  items.forEach(item => markDeleted(db.pantry.list, item.id));
+  addAudit('apagou', 'itens comprados da feira', `${items.length} nos últimos 7 dias`);
+  saveData();
+  toast('Itens comprados apagados.', 'good');
 }
 
 function cycleRecordStatus(type, id) {
@@ -2808,6 +2842,11 @@ function monthLabel(monthValue) {
 function shortDateTime(value) {
   if (!value) return '-';
   return new Date(value).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function shortDate(value) {
+  if (!value) return '-';
+  return new Date(value).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 }
 
 function dateOrDash(value) {
