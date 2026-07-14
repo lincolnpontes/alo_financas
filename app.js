@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.11';
+const APP_VERSION = '1.0.12';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -302,6 +302,7 @@ function handleDocumentClick(event) {
   if (button.id === 'addSyncUserBtn') openSyncUserDialog();
   if (button.id === 'deleteSyncUserBtn') deleteSyncUser();
   if (button.id === 'quickStateBtn') runQuickStateAction();
+  if (button.id === 'quickTaskProgressBtn') runQuickTaskProgressAction();
   if (button.id === 'quickEditBtn') runQuickEditAction();
   if (button.id === 'quickHeaderEditBtn') runQuickProductEditAction();
   if (button.id === 'quickEditOrderBtn') runQuickEditOrderAction();
@@ -535,14 +536,19 @@ function renderTasks() {
 function taskRow(item) {
   const visualState = taskVisualState(item);
   const priority = taskPriorityLabel(item.priority);
-  const subtitle = `Prazo ${dateOrDash(item.dueDate)} · ${item.owner || 'Todos'}${item.priority === 'high' ? ` · ${priority}` : ''}`;
-  const statusText = item.status === 'completed' ? 'Concluída' : visualState === 'overdue' ? 'Atrasada' : 'Pendente';
+  const subtitle = `Prazo ${dateOrDash(item.dueDate)} · ${item.owner || 'Todos'}`;
+  const statusText = item.status === 'completed'
+    ? 'Concluída'
+    : item.status === 'in_progress'
+      ? 'Em execução'
+      : visualState === 'overdue' ? 'Atrasada' : 'Pendente';
   return `
     <div class="task-row task-${escapeAttr(visualState)}">
       <button class="task-marker" type="button" data-task-actions data-id="${escapeAttr(item.id)}" title="Ações da pendência" aria-label="Abrir ações de ${escapeAttr(item.title)}">📌</button>
       <div class="data-main">
         <strong>${escapeHTML(item.title)}</strong>
         <small>${escapeHTML(subtitle)}</small>
+        <small class="task-priority">Prioridade - ${escapeHTML(priority)}</small>
         ${item.notes ? `<small class="task-note">${escapeHTML(item.notes)}</small>` : ''}
       </div>
       <span class="badge ${escapeAttr(visualState)}">${escapeHTML(statusText)}</span>
@@ -552,6 +558,7 @@ function taskRow(item) {
 
 function taskVisualState(item) {
   if (item.status === 'completed') return 'completed';
+  if (item.status === 'in_progress') return 'in-progress';
   if (item.dueDate && item.dueDate < dateStamp()) return 'overdue';
   return 'pending';
 }
@@ -816,7 +823,7 @@ function rowConfig(type, item) {
   if (type === 'account') {
     return {
       title: item.name,
-      subtitle: `${item.type || 'Conta'} - atualizado ${shortDate(item.updatedAt || item.createdAt)}`,
+      subtitle: `${item.type || 'Conta'} (em ${shortDate(item.updatedAt || item.createdAt)})`,
       icon: 'piggy-bank',
       tone: '',
       cycleTitle: '',
@@ -1167,6 +1174,18 @@ function toggleTaskStatus(id) {
   toast(completed ? 'Pendência reaberta.' : 'Pendência concluída.', 'good');
 }
 
+function toggleTaskProgress(id) {
+  const item = db.tasks.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item || item.status === 'completed') return;
+  const wasInProgress = item.status === 'in_progress';
+  item.status = wasInProgress ? 'pending' : 'in_progress';
+  item.completedAt = 0;
+  item.updatedAt = Date.now();
+  addAudit(wasInProgress ? 'voltou para pendente' : 'iniciou', 'a pendência', item.title);
+  saveData();
+  toast(wasInProgress ? 'Pendência voltou para pendente.' : 'Pendência em execução.', 'good');
+}
+
 function openTaskActions(id, anchor) {
   const item = db.tasks.find(entry => entry.id === id && !entry.deletedAt);
   if (!item) return;
@@ -1176,11 +1195,13 @@ function openTaskActions(id, anchor) {
   $('#quickActionsItemId').value = '';
   $('#quickActionsEyebrow').textContent = 'Pendência';
   $('#quickActionsTitle').textContent = item.title;
+  $('#quickTaskProgressBtn').hidden = completed;
   $('#quickStateBtn').hidden = false;
   $('#quickHeaderEditBtn').hidden = true;
   $('#quickEditBtn').hidden = false;
   $('#quickEditOrderBtn').hidden = true;
   $('#quickDeleteOrderBtn').hidden = true;
+  $('#quickTaskProgressBtn').innerHTML = iconSvg(item.status === 'in_progress' ? 'undo' : 'refresh-cw') + (item.status === 'in_progress' ? 'Voltar para pendente' : 'Iniciar execução');
   $('#quickStateBtn').innerHTML = iconSvg(completed ? 'undo' : 'check') + (completed ? 'Reabrir' : 'Concluir');
   $('#quickEditBtn').innerHTML = iconSvg('edit-3') + 'Editar';
   showQuickActionsMenu(anchor);
@@ -1535,6 +1556,7 @@ function openRecordActions(type, id, anchor) {
   $('#quickActionsItemId').value = '';
   $('#quickActionsEyebrow').textContent = ({ expense: 'Despesa', income: 'Receita', account: 'Conta ou reserva', receivable: 'A receber', debt: 'Dívida' })[type] || 'Registro';
   $('#quickActionsTitle').textContent = config.title;
+  $('#quickTaskProgressBtn').hidden = true;
   $('#quickStateBtn').hidden = type === 'account';
   $('#quickHeaderEditBtn').hidden = true;
   $('#quickEditBtn').hidden = false;
@@ -1553,6 +1575,7 @@ function openProductActions(id, listId, anchor) {
   $('#quickActionsItemId').value = listId || '';
   $('#quickActionsEyebrow').textContent = 'Produto';
   $('#quickActionsTitle').textContent = product.name;
+  $('#quickTaskProgressBtn').hidden = true;
   $('#quickStateBtn').hidden = true;
   $('#quickEditBtn').hidden = true;
   $('#quickHeaderEditBtn').hidden = false;
@@ -1585,6 +1608,13 @@ function runQuickStateAction() {
   if (type === 'task') toggleTaskStatus(id);
   else if (['expense', 'income', 'receivable', 'debt'].includes(type)) cycleRecordStatus(type, id);
   else return;
+  closeQuickActionsMenu();
+}
+
+function runQuickTaskProgressAction() {
+  const id = $('#quickActionsId').value;
+  if ($('#quickActionsType').value !== 'task') return;
+  toggleTaskProgress(id);
   closeQuickActionsMenu();
 }
 

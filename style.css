@@ -3417,3 +3417,155 @@ button.metric:focus-visible {
     width: 30px;
   }
 }
+
+/* Mobile density and task workflow for 1.0.12 */
+.task-row.task-in-progress {
+  border-color: #a9c7e5;
+  border-left-color: #3c79b8;
+  background: #f0f6fc;
+}
+
+.badge.in-progress {
+  color: #254f89;
+  background: #dfeaf7;
+}
+
+.task-priority {
+  display: block;
+  margin-top: 2px;
+}
+
+@media (max-width: 520px) {
+  #view-dashboard .stack-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    min-height: 58px;
+    padding: 8px;
+    gap: 7px;
+  }
+
+  #view-dashboard .stack-row .row-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  #view-dashboard .stack-row .data-main {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  #view-dashboard .stack-row .row-amount {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
+    justify-items: end;
+    min-width: 76px;
+    font-size: 0.78rem;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  #accountList .account-row,
+  #receivableList .receivable-row,
+  #debtList .debt-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    align-items: start;
+    min-height: 62px;
+    padding: 8px;
+    gap: 7px;
+  }
+
+  #accountList .account-row .finance-action-trigger,
+  #receivableList .receivable-row .finance-action-trigger,
+  #debtList .debt-row .finance-action-trigger {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  #accountList .account-row .data-main,
+  #receivableList .receivable-row .data-main,
+  #debtList .debt-row .data-main {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  #accountList .account-row .row-amount,
+  #receivableList .receivable-row .row-amount,
+  #debtList .debt-row .row-amount {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    justify-items: end;
+    min-width: 82px;
+    padding-top: 1px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+
+  #accountList .account-row .badge,
+  #receivableList .receivable-row .badge,
+  #debtList .debt-row .badge {
+    min-height: 21px;
+    padding-inline: 6px;
+    font-size: 0.64rem;
+  }
+
+  .market-filter-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 36px;
+    align-items: end;
+    width: 100%;
+    gap: 6px;
+    padding-block: 8px 12px;
+  }
+
+  .market-select-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: auto;
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .market-select-filters .filter-select select {
+    min-height: 38px;
+    padding: 14px 28px 3px 8px;
+    font-size: 0.74rem;
+  }
+
+  .market-select-filters .filter-select > span {
+    left: 8px;
+    top: 5px;
+    font-size: 0.52rem;
+  }
+
+  .market-clear-button {
+    align-self: end;
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+  }
+
+  .task-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 7px;
+    padding: 8px;
+  }
+
+  .task-row .task-marker {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+  }
+
+  .task-row > .badge {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+    min-height: 21px;
+    padding-inline: 6px;
+    font-size: 0.64rem;
+  }
+}
