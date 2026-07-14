@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.10';
+const APP_VERSION = '1.0.11';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -9,6 +9,7 @@ const SYNC_REVISION_KEY = 'alo_financas_sync_revision_v1';
 const LAST_LOGIN_KEY = 'alo_financas_last_login_v1';
 const SYNC_DEBOUNCE_MS = 1800;
 const MARKET_REORDER_DELAY_MS = 10000;
+const MARKET_PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const DATE_LONG = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -62,6 +63,7 @@ const ICONS = {
 
 const storedDB = loadStoredDB();
 let db = normalizeDB(storedDB);
+purgeExpiredBoughtItems(db);
 const dataCleanupPending = JSON.stringify(storedDB) !== JSON.stringify(db);
 let state = {
   view: 'dashboard',
@@ -110,6 +112,7 @@ function init() {
   $('#syncLoginInput').value = localStorage.getItem(LAST_LOGIN_KEY) || syncState.settings.ownerLogin || 'lincoln';
   $('#accessLoginInput').value = localStorage.getItem(LAST_LOGIN_KEY) || syncState.settings.ownerLogin || 'lincoln';
   render();
+  setInterval(cleanupExpiredBoughtItems, 60 * 60 * 1000);
   registerServiceWorker();
   prepareInstallPrompt();
   initializeAccess().catch(() => renderSyncStatus());
@@ -120,7 +123,9 @@ function bindEvents() {
   document.addEventListener('input', handleDocumentInput);
   document.addEventListener('change', handleDocumentChange);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && syncState.user) checkRemoteRevision().catch(() => {});
+    if (document.visibilityState !== 'visible') return;
+    const removed = cleanupExpiredBoughtItems();
+    if (!removed && syncState.user) checkRemoteRevision().catch(() => {});
   });
   window.addEventListener('online', () => {
     if (syncState.user) (syncState.meta.localDirty ? pushRemoteData(false, false) : checkRemoteRevision()).catch(() => {});
@@ -155,7 +160,8 @@ function handleDocumentClick(event) {
 
   const jumpButton = button.closest('[data-view-jump]');
   if (jumpButton) {
-    setView(jumpButton.dataset.viewJump);
+    if (jumpButton.dataset.expenseFilter) state.expenseFilter = jumpButton.dataset.expenseFilter;
+    navigateToView(jumpButton.dataset.viewJump, jumpButton.dataset.viewTarget || '');
     return;
   }
 
@@ -304,7 +310,7 @@ function handleDocumentClick(event) {
   if (button.id === 'manageSitesBtn') openRegistryDialog('sites');
   if (button.id === 'exportBtn') exportData();
   if (button.id === 'importBtn') $('#importFileInput').click();
-  if (button.id === 'clearRecentBoughtBtn') clearRecentBoughtItems();
+  if (button.id === 'clearBoughtBtn') clearBoughtItems();
   if (button.id === 'accessLoginBtn') {
     event.preventDefault();
     $('#accessLoginForm').requestSubmit();
@@ -370,6 +376,15 @@ function setView(view) {
   if (changed) window.scrollTo(0, 0);
 }
 
+function navigateToView(view, targetId = '') {
+  setView(view);
+  if (!targetId) return;
+  requestAnimationFrame(() => {
+    const target = document.getElementById(targetId);
+    (target?.closest('.panel') || target)?.scrollIntoView({ block: 'start' });
+  });
+}
+
 function render() {
   ensureRecurringForMonth();
   $$('.view').forEach(section => {
@@ -405,20 +420,19 @@ function renderDashboard() {
     .slice(0, 6);
   const neededItems = visible(db.pantry.list)
     .filter(item => item.status !== 'bought')
-    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))
-    .slice(0, 6);
+    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
   const pendingTasks = visible(db.tasks)
     .filter(item => item.status !== 'completed')
     .sort((a, b) => String(a.dueDate || '9999-12-31').localeCompare(String(b.dueDate || '9999-12-31')))
     .slice(0, 5);
 
   $('#metricGrid').innerHTML = [
-    metricEmoji('Receitas', totals.incomeTotal, '', '💲', 'income'),
-    metricEmoji('Despesas', totals.expenseTotal, '', '💲', 'expense'),
-    metricEmoji('Pendente', pendingWithHistory, '', '⚠️', 'pending'),
-    metricEmoji('Poupança e contas', totals.accountTotal, '', '🐖', 'savings'),
-    metricEmoji('Saldo do mês', totals.monthBalance, '', '💰', totals.monthBalance >= 0 ? 'balance' : 'expense'),
-    metricEmoji('Lista da feira', neededItems.length, '', '🛒', 'market', false)
+    metricEmoji('Receitas', totals.incomeTotal, '', '💲', 'income', true, { view: 'finances', target: 'incomeList' }),
+    metricEmoji('Despesas', totals.expenseTotal, '', '💲', 'expense', true, { view: 'finances', target: 'expenseList', expenseFilter: 'all' }),
+    metricEmoji('Pendente', pendingWithHistory, '', '⚠️', 'pending', true, { view: 'finances', target: 'expenseList', expenseFilter: 'open' }),
+    metricEmoji('Poupança e contas', totals.accountTotal, '', '🐖', 'savings', true, { view: 'finances', target: 'accountList' }),
+    metricEmoji('Saldo do mês', totals.monthBalance, '', '💰', totals.monthBalance >= 0 ? 'balance' : 'expense', true, { view: 'finances', target: 'financeSummary' }),
+    metricEmoji('Lista da feira', neededItems.length, '', '🛒', 'market', false, { view: 'market', target: 'shoppingList' })
   ].join('');
 
   $('#upcomingList').innerHTML = dueSoon.length
@@ -427,15 +441,6 @@ function renderDashboard() {
         return stackRow(item.title, `${statusLabel('expense', item.status)} - dia ${item.dueDay || '-'}`, item.amount == null ? 'A definir' : formatMoney(item.amount), 'calendar-days', tone);
       }).join('')
     : emptyState('Sem vencimentos abertos neste mês.');
-
-  $('#marketPreview').innerHTML = neededItems.length
-    ? neededItems.map(item => stackRow(item.name, `${item.qty || 1} ${item.unit || 'un'} - ${marketStatusLabel(item.status)}`, item.site || '', item.status === 'ordered' ? 'send' : 'shopping-basket', item.status === 'ordered' ? 'violet' : '')).join('')
-    : emptyState('Lista de feira vazia.');
-
-  const accounts = visible(db.finances.accounts).slice(0, 6);
-  $('#accountPreview').innerHTML = accounts.length
-    ? accounts.map(item => stackRow(item.name, item.type || 'Conta', formatMoney(item.balance), 'piggy-bank', '')).join('')
-    : emptyState('Nenhuma conta cadastrada.');
 
   $('#taskPreview').innerHTML = pendingTasks.length
     ? pendingTasks.map(item => {
@@ -564,7 +569,7 @@ function renderMarket() {
   renderShoppingList();
   $('#marketStatusFilter').value = state.marketFilter;
   $('#marketCategoryFilter').value = state.marketCategory;
-  $('#clearRecentBoughtBtn').disabled = recentBoughtItems().length === 0;
+  $('#clearBoughtBtn').disabled = boughtItems().length === 0;
 }
 
 function renderQuickOptions() {
@@ -702,17 +707,20 @@ function metric(label, value, helper, icon, tone = '', currency = true) {
   `;
 }
 
-function metricEmoji(label, value, helper, emoji, tone = '', currency = true) {
+function metricEmoji(label, value, helper, emoji, tone = '', currency = true, navigation = {}) {
   const display = currency ? formatMoney(value) : String(value);
+  const navigationAttrs = navigation.view
+    ? `data-view-jump="${escapeAttr(navigation.view)}" data-view-target="${escapeAttr(navigation.target || '')}"${navigation.expenseFilter ? ` data-expense-filter="${escapeAttr(navigation.expenseFilter)}"` : ''}`
+    : '';
   return `
-    <article class="metric metric-${escapeAttr(tone)}">
+    <button class="metric metric-${escapeAttr(tone)}" type="button" ${navigationAttrs}>
       <span class="metric-emoji" aria-hidden="true">${emoji}</span>
       <div class="metric-copy">
         <small>${escapeHTML(label)}</small>
         <strong>${escapeHTML(display)}</strong>
       </div>
       ${helper ? `<small>${escapeHTML(helper)}</small>` : ''}
-    </article>
+    </button>
   `;
 }
 
@@ -770,7 +778,7 @@ function financeRow(type, item) {
   const leadingIcon = `<button class="row-icon finance-action-trigger ${escapeAttr(actionTone)}" type="button" data-record-actions data-record-type="${escapeAttr(type)}" data-id="${escapeAttr(item.id)}" title="Ações" aria-label="Abrir ações de ${escapeAttr(config.title)}">${iconSvg(config.icon)}</button>`;
 
   return `
-    <div class="data-row ${type === 'expense' ? `expense-row expense-${expenseState}` : ''}">
+    <div class="data-row finance-row ${escapeAttr(type)}-row ${type === 'expense' ? `expense-${expenseState}` : ''}">
       ${leadingIcon}
       <div class="data-main">
         <strong>${escapeHTML(config.title)}</strong>
@@ -865,7 +873,7 @@ function shoppingRow(entry) {
         <button class="quantity-tick" type="button" data-mark-product-needed="${escapeAttr(product.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>
       </div>`;
   return `
-    <article class="shopping-item status-${escapeAttr(status)} ${item ? 'has-request' : ''}" data-product-id="${escapeAttr(product.id)}">
+    <article class="shopping-item status-${escapeAttr(status)} ${item ? 'has-request' : 'has-draft'}" data-product-id="${escapeAttr(product.id)}">
       <button class="product-emoji" type="button" data-product-actions data-id="${escapeAttr(product.id)}" data-list-id="${escapeAttr(item?.id || '')}" title="Ações de ${escapeAttr(product.name)}" aria-label="Abrir ações de ${escapeAttr(product.name)}">${productEmoji(product)}</button>
       <div class="data-main">
         <strong>${escapeHTML(product.name)}</strong>
@@ -1477,10 +1485,17 @@ function openOrderDialog(id) {
   const item = db.pantry.list.find(entry => entry.id === id);
   if (!item) return;
   const product = db.pantry.products.find(entry => entry.id === item.productId);
+  const productSites = String(product?.sites || '').split(/[;,]/).map(site => site.trim()).filter(Boolean);
+  const sites = dedupeTextValues([...(db.pantry.sites || []), ...productSites, item.site]);
+  const siteSelect = $('#orderSiteInput');
   $('#orderItemId').value = id;
-  $('#orderSiteInput').value = item.site || product?.sites || '';
+  siteSelect.innerHTML = [
+    '<option value="">Não informar</option>',
+    ...sites.map(site => `<option value="${escapeAttr(site)}">${escapeHTML(site)}</option>`)
+  ].join('');
+  siteSelect.value = item.site || '';
   $('#orderDialog').showModal();
-  $('#orderSiteInput').focus();
+  siteSelect.focus();
 }
 
 function saveOrderFromForm(event) {
@@ -1610,22 +1625,40 @@ function deleteShoppingOrder(id) {
   toast('Pedido excluído.', 'good');
 }
 
-function recentBoughtItems() {
-  const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
-  return visible(db.pantry.list).filter(item => {
-    const completedAt = Number(item.boughtAt || item.updatedAt || 0);
-    return item.status === 'bought' && completedAt >= cutoff;
-  });
+function boughtItems() {
+  return visible(db.pantry.list).filter(item => item.status === 'bought');
 }
 
-function clearRecentBoughtItems() {
-  const items = recentBoughtItems();
-  if (!items.length) return toast('Nenhum item comprado nos últimos 7 dias.', 'good');
-  if (!confirm(`Apagar ${items.length} ${items.length === 1 ? 'item comprado' : 'itens comprados'} nos últimos 7 dias?`)) return;
-  items.forEach(item => markDeleted(db.pantry.list, item.id));
-  addAudit('apagou', 'itens comprados da feira', `${items.length} nos últimos 7 dias`);
+function purgeExpiredBoughtItems(database = db) {
+  const now = Date.now();
+  const cutoff = now - MARKET_PURGE_AFTER_MS;
+  const items = (database.pantry?.list || []).filter(item => {
+    const completedAt = Number(item.boughtAt || item.updatedAt || item.createdAt || 0);
+    return !item.deletedAt && item.status === 'bought' && completedAt > 0 && completedAt <= cutoff;
+  });
+  items.forEach(item => {
+    item.deletedAt = now;
+    item.updatedAt = now;
+  });
+  return items.length;
+}
+
+function cleanupExpiredBoughtItems() {
+  const count = purgeExpiredBoughtItems(db);
+  if (!count) return 0;
+  addAudit('removeu automaticamente', 'itens concluídos da feira', `${count} após 7 dias`);
   saveData();
-  toast('Itens comprados apagados.', 'good');
+  return count;
+}
+
+function clearBoughtItems() {
+  const items = boughtItems();
+  if (!items.length) return toast('Nenhum item comprado ou recebido para zerar.', 'good');
+  if (!confirm(`Zerar ${items.length} ${items.length === 1 ? 'item comprado ou recebido' : 'itens comprados ou recebidos'}?`)) return;
+  items.forEach(item => markDeleted(db.pantry.list, item.id));
+  addAudit('zerou', 'itens concluídos da feira', String(items.length));
+  saveData();
+  toast('Itens comprados e recebidos foram zerados.', 'good');
 }
 
 function cycleRecordStatus(type, id) {
@@ -2353,6 +2386,7 @@ async function resolveSyncConflict() {
   const remote = await syncRequest('pull');
   const merged = mergeDB(normalizeDB(remote.data), db);
   db = merged;
+  purgeExpiredBoughtItems(db);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
   syncState.revision = Number(remote.revision || 0);
   sessionStorage.setItem(SYNC_REVISION_KEY, String(syncState.revision));
@@ -2377,15 +2411,18 @@ async function pullRemoteData(options = {}) {
     const nextDB = merge ? mergeDB(incoming, db) : incoming;
     const mergeChangedRemote = merge && comparableData(nextDB) !== comparableData(incoming);
     db = nextDB;
+    const expiredBoughtCount = purgeExpiredBoughtItems(db);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
     syncState.revision = Number(payload.revision || syncState.revision || 0);
     sessionStorage.setItem(SYNC_REVISION_KEY, String(syncState.revision));
-    syncState.meta.localDirty = merge ? syncState.meta.localDirty || mergeChangedRemote : false;
+    syncState.meta.localDirty = merge
+      ? syncState.meta.localDirty || mergeChangedRemote || expiredBoughtCount > 0
+      : expiredBoughtCount > 0;
     syncState.meta.conflict = false;
     syncState.meta.syncError = '';
     syncState.meta.lastSyncAt = Date.now();
     saveSyncMeta();
-    if (merge && syncState.meta.localDirty) {
+    if ((merge || expiredBoughtCount > 0) && syncState.meta.localDirty) {
       const saved = await syncRequest('save', { data: db, baseRevision: syncState.revision, force: true });
       syncState.revision = Number(saved.revision || syncState.revision || 0);
       sessionStorage.setItem(SYNC_REVISION_KEY, String(syncState.revision));
@@ -2753,6 +2790,7 @@ function handleImportFile(event) {
       if (imported.appId !== APP_ID) throw new Error('Arquivo inválido.');
       if (!confirm('Substituir os dados deste aparelho pelo backup?')) return;
       db = imported;
+      purgeExpiredBoughtItems(db);
       addAudit('importou', 'o backup', 'Dados restaurados neste aparelho');
       saveData();
       toast('Backup importado.', 'good');

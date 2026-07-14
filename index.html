@@ -39,31 +39,15 @@
           <article class="panel">
             <div class="panel-title">
               <h3>Vencimentos</h3>
-              <button class="ghost-btn" type="button" data-view-jump="finances">Abrir</button>
+              <button class="ghost-btn" type="button" data-view-jump="finances" data-view-target="expenseList">Abrir</button>
             </div>
             <div class="stack-list" id="upcomingList"></div>
           </article>
 
           <article class="panel">
             <div class="panel-title">
-              <h3>Feira</h3>
-              <button class="ghost-btn" type="button" data-view-jump="market">Abrir</button>
-            </div>
-            <div class="stack-list" id="marketPreview"></div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-title">
-              <h3>Reservas</h3>
-              <button class="panel-add-btn" type="button" data-open-record="account" title="Adicionar conta ou reserva" aria-label="Adicionar conta ou reserva" data-icon="plus"></button>
-            </div>
-            <div class="stack-list" id="accountPreview"></div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-title">
               <h3>Pendências</h3>
-              <button class="ghost-btn" type="button" data-view-jump="tasks">Abrir</button>
+              <button class="ghost-btn" type="button" data-view-jump="tasks" data-view-target="taskList">Abrir</button>
             </div>
             <div class="stack-list" id="taskPreview"></div>
           </article>
@@ -172,7 +156,7 @@
                 </select>
               </label>
             </div>
-            <button class="icon-btn market-clear-button" type="button" id="clearRecentBoughtBtn" title="Apagar itens comprados nos últimos 7 dias" aria-label="Apagar itens comprados nos últimos 7 dias" data-icon="trash-2"></button>
+            <button class="icon-btn market-clear-button" type="button" id="clearBoughtBtn" title="Zerar itens comprados e recebidos" aria-label="Zerar itens comprados e recebidos" data-icon="trash-2"></button>
           </div>
           <div class="shopping-grid" id="shoppingList"></div>
         </article>
@@ -484,13 +468,15 @@
   <dialog class="modal" id="orderDialog">
     <form method="dialog" class="modal-card" id="orderForm">
       <div class="modal-title">
-        <h3>Pedido</h3>
+        <h3>Onde foi pedido?</h3>
         <button class="icon-btn" type="button" data-close-dialog="orderDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
       </div>
       <input type="hidden" id="orderItemId" />
       <label>
-        <span>Site ou app</span>
-        <input id="orderSiteInput" list="siteOptions" autocomplete="off" placeholder="Mercado Livre, iFood, site do mercado..." />
+        <span>Site ou loja</span>
+        <select id="orderSiteInput" class="order-site-select">
+          <option value="">Não informar</option>
+        </select>
       </label>
       <div class="modal-actions">
         <span class="spacer"></span>

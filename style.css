@@ -3120,7 +3120,7 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-#view-dashboard .dashboard-grid > .panel:nth-child(4) {
+#view-dashboard .dashboard-grid > .panel:nth-child(2) {
   border-top: 4px solid var(--amber);
 }
 
@@ -3299,5 +3299,121 @@ body {
     width: auto;
     justify-content: flex-start;
     flex-wrap: nowrap;
+  }
+}
+
+/* Navigation and compact layouts for 1.0.11 */
+button.metric {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+button.metric:hover {
+  transform: translateY(-2px);
+  border-color: #b9d4ca;
+  box-shadow: 0 18px 40px rgba(24, 48, 41, 0.13);
+}
+
+button.metric:focus-visible {
+  outline: 3px solid rgba(41, 135, 94, 0.24);
+  outline-offset: 2px;
+}
+
+.panel,
+.finance-summary,
+.shopping-grid {
+  scroll-margin-top: 92px;
+}
+
+.order-site-select {
+  width: 100%;
+  min-height: 50px;
+  padding-inline: 13px 40px;
+  border-color: #bfd4cc;
+  background-color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+@media (max-width: 520px) {
+  #incomeList .income-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    align-items: start;
+    min-height: 62px;
+    padding: 8px;
+    gap: 7px;
+  }
+
+  #incomeList .income-row .finance-action-trigger {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  #incomeList .income-row .data-main {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  #incomeList .income-row .row-amount {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    justify-items: end;
+    min-width: 86px;
+    padding-top: 1px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+
+  #incomeList .income-row .badge {
+    min-height: 21px;
+    padding-inline: 6px;
+    font-size: 0.64rem;
+  }
+
+  .shopping-item.has-draft {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    min-height: 58px;
+    padding: 6px 7px;
+    gap: 6px;
+  }
+
+  .shopping-item.has-draft .product-emoji {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    font-size: 1.05rem;
+  }
+
+  .shopping-item.has-draft .quantity-stepper {
+    grid-column: 3;
+    grid-row: 1;
+    width: 132px;
+    min-height: 32px;
+  }
+
+  .shopping-item.has-draft .quantity-stepper > button {
+    flex: 0 0 29px;
+    width: 29px;
+    min-height: 32px;
+  }
+
+  .shopping-item.has-draft .quantity-stepper .quantity-value {
+    flex: 0 0 43px;
+    width: 43px;
+    min-width: 43px;
+    padding-inline: 2px;
+  }
+
+  .shopping-item.has-draft .quantity-stepper .quantity-tick {
+    flex-basis: 30px;
+    width: 30px;
   }
 }
