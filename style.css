@@ -1705,6 +1705,195 @@ body {
   }
 }
 
+/* Restored ordering flow and compact settings for 1.0.15 */
+.settings-section {
+  overflow: hidden;
+}
+
+.settings-section-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.settings-section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-section-summary::marker {
+  content: "";
+}
+
+.settings-section-summary:focus-visible {
+  outline: 3px solid rgba(31, 122, 111, 0.2);
+  outline-offset: 4px;
+}
+
+.settings-section-summary .settings-title-lockup {
+  min-width: 0;
+}
+
+.settings-section-chevron {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+}
+
+.settings-section-chevron svg {
+  width: 17px;
+  height: 17px;
+}
+
+.settings-section[open] .settings-section-chevron {
+  transform: rotate(180deg);
+}
+
+.settings-section-body {
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-summary-count {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 24px;
+  padding-inline: 7px;
+  border-radius: 999px;
+  color: var(--brand-strong);
+  background: var(--brand-soft);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.settings-section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.settings-section-actions .secondary-btn {
+  min-height: 40px;
+}
+
+.settings-section.registry-panel .settings-command-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#view-tasks {
+  gap: 12px;
+}
+
+#view-tasks .task-filter-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(410px, 100%);
+  gap: 10px;
+  padding: 0 0 10px;
+}
+
+#view-tasks .task-filter-row .filter-select {
+  width: 100%;
+}
+
+#view-tasks .task-filter-row .filter-select > span {
+  top: 5px;
+  left: 10px;
+  font-size: 0.72rem;
+}
+
+#view-tasks .task-filter-row .filter-select select {
+  min-height: 47px;
+  padding: 17px 34px 4px 10px;
+  font-size: 0.98rem;
+}
+
+.bottom-nav .nav-emoji {
+  font-size: 1.78rem;
+}
+
+.bottom-nav button {
+  gap: 1px;
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  .settings-section-summary {
+    min-height: 48px;
+    gap: 7px;
+  }
+
+  .settings-section-summary .status-pill {
+    min-height: 22px;
+    padding-inline: 7px;
+    font-size: 0.62rem;
+  }
+
+  .settings-section.registry-panel .settings-command-list {
+    grid-template-columns: 1fr;
+  }
+
+  #view-tasks {
+    gap: 8px;
+  }
+
+  #view-tasks .task-filter-row {
+    width: 100%;
+    gap: 6px;
+    padding-block: 2px 8px;
+  }
+
+  #view-tasks .task-filter-row .filter-select > span {
+    top: 5px;
+    left: 9px;
+    font-size: 0.66rem;
+  }
+
+  #view-tasks .task-filter-row .filter-select select {
+    min-height: 44px;
+    padding: 16px 28px 3px 9px;
+    font-size: 0.92rem;
+  }
+
+  #taskForm .modal-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  #taskForm .modal-actions .spacer {
+    display: none;
+  }
+
+  #taskForm .modal-actions .primary-btn,
+  #taskForm .modal-actions .secondary-btn,
+  #taskForm .modal-actions .danger-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 7px;
+    font-size: 0.76rem;
+  }
+
+  .bottom-nav .nav-emoji {
+    font-size: 1.54rem;
+  }
+
+  .bottom-nav button {
+    font-size: 0.74rem;
+  }
+}
+
 /* Dense interaction pass for 1.0.4 */
 .finance-month-switcher .month-display {
   min-height: 46px;
@@ -4072,5 +4261,76 @@ body[data-active-view="tasks"] .topbar {
 
   .reminder-actions {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+/* Keep 1.0.15 navigation sizing after earlier version layers. */
+.bottom-nav .nav-emoji {
+  font-size: 1.78rem;
+}
+
+.bottom-nav button {
+  gap: 1px;
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  .bottom-nav .nav-emoji {
+    font-size: 1.54rem;
+  }
+
+  .bottom-nav button {
+    font-size: 0.74rem;
+  }
+}
+
+.reminder-profile-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.reminder-profile-summary::-webkit-details-marker {
+  display: none;
+}
+
+.reminder-profile-summary::marker {
+  content: "";
+}
+
+.reminder-profile-chevron {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+}
+
+.reminder-profile-chevron svg {
+  width: 16px;
+  height: 16px;
+}
+
+.reminder-profile[open] .reminder-profile-chevron {
+  transform: rotate(180deg);
+}
+
+.reminder-profile-body {
+  padding: 6px 0 2px 44px;
+}
+
+@media (max-width: 520px) {
+  .reminder-profile-summary {
+    min-height: 48px;
+  }
+
+  .reminder-profile-body {
+    padding-left: 0;
   }
 }

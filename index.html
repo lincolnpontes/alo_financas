@@ -46,7 +46,7 @@
 
           <article class="panel">
             <div class="panel-title">
-              <h3>Pendências</h3>
+              <h3>Tarefas</h3>
               <button class="ghost-btn" type="button" data-view-jump="tasks" data-view-target="taskList">Abrir</button>
             </div>
             <div class="stack-list" id="taskPreview"></div>
@@ -174,9 +174,9 @@
             <button class="view-home-logo" type="button" data-view="dashboard" title="Voltar ao Painel" aria-label="Voltar ao Painel">
               <img src="icon.svg" alt="" aria-hidden="true" />
             </button>
-            <h2 id="tasksTitle">Pendências</h2>
+            <h2 id="tasksTitle">Tarefas</h2>
           </div>
-          <button class="panel-add-btn" type="button" id="addTaskBtn" title="Nova pendência" aria-label="Nova pendência" data-icon="plus"></button>
+          <button class="panel-add-btn" type="button" id="addTaskBtn" title="Nova tarefa" aria-label="Nova tarefa" data-icon="plus"></button>
         </div>
 
         <article class="panel tasks-panel">
@@ -212,8 +212,8 @@
         </div>
 
         <div class="settings-grid">
-          <article class="panel sync-panel">
-            <div class="panel-title">
+          <details class="panel settings-section sync-panel">
+            <summary class="settings-section-summary">
               <div class="settings-title-lockup">
                 <span class="settings-emoji" aria-hidden="true">☁️</span>
                 <div>
@@ -222,7 +222,9 @@
                 </div>
               </div>
               <span class="status-pill" id="syncStatusPill">Local</span>
-            </div>
+              <span class="settings-section-chevron" aria-hidden="true" data-static-icon="chevron-down"></span>
+            </summary>
+            <div class="settings-section-body">
             <form class="settings-form" id="syncSetupForm">
               <label>
                 <span>URL do Google Apps Script</span>
@@ -270,10 +272,11 @@
             </div>
 
             <p class="microcopy" id="syncDetailText">Modo local</p>
-          </article>
+            </div>
+          </details>
 
-          <article class="panel users-panel">
-            <div class="panel-title">
+          <details class="panel settings-section users-panel">
+            <summary class="settings-section-summary">
               <div class="settings-title-lockup">
                 <span class="settings-emoji" aria-hidden="true">👥</span>
                 <div>
@@ -281,13 +284,19 @@
                   <p>Pessoas com acesso</p>
                 </div>
               </div>
-              <button class="panel-add-btn" type="button" id="addSyncUserBtn" title="Cadastrar usuário" aria-label="Cadastrar usuário" data-icon="plus"></button>
+              <span class="settings-summary-count" id="syncUsersCount">0</span>
+              <span class="settings-section-chevron" aria-hidden="true" data-static-icon="chevron-down"></span>
+            </summary>
+            <div class="settings-section-body">
+              <div class="settings-section-actions">
+                <button class="secondary-btn" type="button" id="addSyncUserBtn" data-icon="plus">Cadastrar usuário</button>
+              </div>
+              <div class="users-list" id="syncUsersList"></div>
             </div>
-            <div class="users-list" id="syncUsersList"></div>
-          </article>
+          </details>
 
-          <article class="panel registry-panel">
-            <div class="panel-title">
+          <details class="panel settings-section registry-panel">
+            <summary class="settings-section-summary">
               <div class="settings-title-lockup">
                 <span class="settings-emoji" aria-hidden="true">🛒</span>
                 <div>
@@ -295,29 +304,37 @@
                   <p>Opções reutilizáveis</p>
                 </div>
               </div>
-            </div>
-            <div class="settings-command-list">
+              <span class="settings-section-chevron" aria-hidden="true" data-static-icon="chevron-down"></span>
+            </summary>
+            <div class="settings-section-body settings-command-list">
               <button class="secondary-btn" type="button" id="manageCategoriesBtn" data-icon="package">Cadastrar categorias</button>
+              <button class="secondary-btn" type="button" id="manageSitesBtn" data-icon="shopping-basket">Cadastrar sites</button>
             </div>
-          </article>
+          </details>
 
-          <article class="panel reminder-panel">
-            <div class="panel-title">
+          <details class="panel settings-section reminder-panel">
+            <summary class="settings-section-summary">
               <div class="settings-title-lockup">
                 <span class="settings-emoji" aria-hidden="true">🔔</span>
                 <div>
                   <h3>Lembretes</h3>
-                  <p>Contas, pendências e feira</p>
+                  <p>Contas, tarefas e feira</p>
                 </div>
               </div>
               <span class="status-pill" id="reminderStatusPill">Desativados</span>
-            </div>
+              <span class="settings-section-chevron" aria-hidden="true" data-static-icon="chevron-down"></span>
+            </summary>
+            <div class="settings-section-body">
             <form class="settings-form" id="reminderSettingsForm">
               <div class="reminder-profile-list">
-                <fieldset class="reminder-profile">
-                  <legend>Vencimento de contas</legend>
+                <details class="reminder-profile">
+                  <summary class="reminder-profile-summary">
+                    <span class="reminder-profile-name"><b class="reminder-profile-icon expense">$</b><span><strong>Vencimento de contas</strong><small>Antecedência, frequência e horário.</small></span></span>
+                    <span class="reminder-profile-chevron" aria-hidden="true" data-static-icon="chevron-down"></span>
+                  </summary>
+                  <div class="reminder-profile-body">
                   <label class="switch-row compact-switch">
-                    <span class="reminder-profile-name"><b class="reminder-profile-icon expense">$</b><span><strong>Contas</strong><small>Despesas pendentes e vencidas.</small></span></span>
+                    <span><strong>Ativar lembrete de contas</strong><small>Despesas pendentes e vencidas.</small></span>
                     <input id="expenseRemindersEnabled" type="checkbox" />
                     <i aria-hidden="true"></i>
                   </label>
@@ -327,12 +344,17 @@
                     <label><span>Das</span><input id="expenseReminderStartTime" type="time" /></label>
                     <label><span>Até</span><input id="expenseReminderEndTime" type="time" /></label>
                   </div>
-                </fieldset>
+                  </div>
+                </details>
 
-                <fieldset class="reminder-profile">
-                  <legend>Vencimento de pendências</legend>
+                <details class="reminder-profile">
+                  <summary class="reminder-profile-summary">
+                    <span class="reminder-profile-name"><b class="reminder-profile-icon task">⚠</b><span><strong>Vencimento de tarefas</strong><small>Antecedência, frequência e horário.</small></span></span>
+                    <span class="reminder-profile-chevron" aria-hidden="true" data-static-icon="chevron-down"></span>
+                  </summary>
+                  <div class="reminder-profile-body">
                   <label class="switch-row compact-switch">
-                    <span class="reminder-profile-name"><b class="reminder-profile-icon task">⚠</b><span><strong>Pendências</strong><small>Prazos das atividades da casa.</small></span></span>
+                    <span><strong>Ativar lembrete de tarefas</strong><small>Prazos das atividades da casa.</small></span>
                     <input id="taskRemindersEnabled" type="checkbox" />
                     <i aria-hidden="true"></i>
                   </label>
@@ -342,12 +364,17 @@
                     <label><span>Das</span><input id="taskReminderStartTime" type="time" /></label>
                     <label><span>Até</span><input id="taskReminderEndTime" type="time" /></label>
                   </div>
-                </fieldset>
+                  </div>
+                </details>
 
-                <fieldset class="reminder-profile">
-                  <legend>Prioridade alta na feira</legend>
+                <details class="reminder-profile">
+                  <summary class="reminder-profile-summary">
+                    <span class="reminder-profile-name"><b class="reminder-profile-icon market">🛒</b><span><strong>Prioridade alta na feira</strong><small>Espera, frequência e horário.</small></span></span>
+                    <span class="reminder-profile-chevron" aria-hidden="true" data-static-icon="chevron-down"></span>
+                  </summary>
+                  <div class="reminder-profile-body">
                   <label class="switch-row compact-switch">
-                    <span class="reminder-profile-name"><b class="reminder-profile-icon market">🛒</b><span><strong>Feira</strong><small>Produtos marcados como prioridade alta.</small></span></span>
+                    <span><strong>Ativar lembrete da feira</strong><small>Produtos marcados como prioridade alta.</small></span>
                     <input id="marketRemindersEnabled" type="checkbox" />
                     <i aria-hidden="true"></i>
                   </label>
@@ -357,14 +384,16 @@
                     <label><span>Das</span><input id="marketReminderStartTime" type="time" /></label>
                     <label><span>Até</span><input id="marketReminderEndTime" type="time" /></label>
                   </div>
-                </fieldset>
+                  </div>
+                </details>
               </div>
               <div class="action-row reminder-actions">
                 <button class="secondary-btn" type="button" id="notificationPermissionBtn" data-icon="bell">Permitir notificações</button>
                 <button class="primary-btn" type="submit" data-icon="check">Salvar</button>
               </div>
             </form>
-          </article>
+            </div>
+          </details>
 
           <article class="panel">
             <div class="panel-title">
@@ -399,7 +428,7 @@
       <button type="button" class="is-active nav-dashboard" data-view="dashboard" aria-label="Painel" title="Painel"><span class="nav-emoji" aria-hidden="true">🏠</span><span>Painel</span></button>
       <button type="button" class="nav-finances" data-view="finances" aria-label="Finanças" title="Finanças"><span class="nav-emoji" aria-hidden="true">💲</span><span>Finanças</span></button>
       <button type="button" data-view="market" aria-label="Feira" title="Feira"><span class="nav-emoji" aria-hidden="true">🛒</span><span>Feira</span></button>
-      <button type="button" data-view="tasks" aria-label="Pendências" title="Pendências"><span class="nav-emoji" aria-hidden="true">📌</span><span>Pendências</span></button>
+      <button type="button" data-view="tasks" aria-label="Tarefas" title="Tarefas"><span class="nav-emoji" aria-hidden="true">📌</span><span>Tarefas</span></button>
       <button type="button" data-view="settings" aria-label="Ajustes" title="Ajustes"><span class="nav-emoji" aria-hidden="true">⚙️</span><span>Ajustes</span></button>
     </nav>
   </div>
@@ -567,8 +596,8 @@
     <div class="modal-card">
       <div class="modal-title">
         <div>
-          <p class="eyebrow">Observação da pendência</p>
-          <h3 id="taskDetailsTitle">Pendência</h3>
+          <p class="eyebrow">Observação da tarefa</p>
+          <h3 id="taskDetailsTitle">Tarefa</h3>
         </div>
         <button class="icon-btn" type="button" data-close-dialog="taskDetailsDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
       </div>
@@ -577,6 +606,30 @@
         <strong id="taskDetailsNotes"></strong>
       </div>
     </div>
+  </dialog>
+
+  <dialog class="modal compact-modal" id="orderDialog">
+    <form method="dialog" class="modal-card" id="orderForm">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow">Pedido da feira</p>
+          <h3>Onde foi pedido?</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="orderDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+      </div>
+      <input type="hidden" id="orderItemId" />
+      <label>
+        <span>Site ou loja</span>
+        <select id="orderSiteInput" class="order-site-select">
+          <option value="">Não informar</option>
+        </select>
+      </label>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button class="secondary-btn" type="button" data-close-dialog="orderDialog">Cancelar</button>
+        <button class="primary-btn" type="submit" data-icon="send">Salvar pedido</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog class="modal compact-modal" id="quantityDialog">
@@ -712,7 +765,7 @@
       <div class="modal-title">
         <div>
           <p class="eyebrow">Organização da casa</p>
-          <h3 id="taskDialogTitle">Nova pendência</h3>
+          <h3 id="taskDialogTitle">Nova tarefa</h3>
         </div>
         <button class="icon-btn" type="button" data-close-dialog="taskDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
       </div>

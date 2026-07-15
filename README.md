@@ -1,6 +1,6 @@
 # Alô Finanças
 
-App PWA estático para controle doméstico de finanças, pendências e lista de feira.
+App PWA estático para controle doméstico de finanças, tarefas e lista de feira.
 
 ## Rodar local
 
