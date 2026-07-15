@@ -1,9 +1,10 @@
-const CACHE_NAME = 'alo-financas-v1.0.12';
+const CACHE_NAME = 'alo-financas-v1.0.13';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
+  './xlsx.full.min.js',
   './manifest.json',
   './icon.svg'
 ];
@@ -52,5 +53,16 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request).catch(() => caches.match('./index.html')))
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      const existing = clients[0];
+      if (existing) return existing.focus();
+      return self.clients.openWindow('./');
+    })
   );
 });

@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.12';
+const APP_VERSION = '1.0.13';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -7,6 +7,7 @@ const SYNC_TOKEN_KEY = 'alo_financas_sync_token_v1';
 const SYNC_USER_KEY = 'alo_financas_sync_user_v1';
 const SYNC_REVISION_KEY = 'alo_financas_sync_revision_v1';
 const LAST_LOGIN_KEY = 'alo_financas_last_login_v1';
+const REMINDER_META_KEY = 'alo_financas_reminder_meta_v1';
 const SYNC_DEBOUNCE_MS = 1800;
 const MARKET_REORDER_DELAY_MS = 10000;
 const MARKET_PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -24,6 +25,7 @@ const OWNERS = ['Todos'];
 
 const ICONS = {
   'badge-dollar-sign': '<path d="M3 11.5 12 2l9 9.5-9 9.5-9-9.5Z"></path><path d="M12 7v9"></path><path d="M14.5 9.5c-.4-.5-1.1-.8-2.1-.8-1.2 0-2 .5-2 1.3 0 2 4.4.8 4.4 3 0 .8-.8 1.4-2.1 1.4-1.1 0-2-.4-2.6-1"></path>',
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path>',
   'calendar-days': '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path>',
   check: '<path d="m20 6-11 11-5-5"></path>',
   'chevron-down': '<path d="m6 9 6 6 6-6"></path>',
@@ -52,6 +54,7 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path>',
   send: '<path d="m22 2-7 20-4-9-9-4 20-7Z"></path><path d="M22 2 11 13"></path>',
   settings: '<path d="M12.2 2h-.4l-1 2.6a7.8 7.8 0 0 0-1.8.8L6.4 4.3l-.3.3-2 3.4.2.4 2.1.6a8 8 0 0 0 0 2L4.3 11.6l-.2.4 2 3.4.3.3L9 14.6c.6.4 1.2.6 1.8.8l1 2.6h.4l1-2.6c.6-.2 1.2-.4 1.8-.8l2.6 1.1.3-.3 2-3.4-.2-.4-2.1-.6a8 8 0 0 0 0-2l2.1-.6.2-.4-2-3.4-.3-.3L15 5.4a7.8 7.8 0 0 0-1.8-.8L12.2 2Z"></path><circle cx="12" cy="10" r="3"></circle>',
+  star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2l-5-4.9 6.9-1L12 2Z"></path>',
   'shopping-basket': '<path d="m5 11 4-7"></path><path d="m19 11-4-7"></path><path d="M2 11h20"></path><path d="m3.5 11 1.6 8.1A2 2 0 0 0 7 21h10a2 2 0 0 0 2-1.9l1.5-8.1"></path><path d="M9 15v2"></path><path d="M15 15v2"></path>',
   'trash-2': '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 15H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
   undo: '<path d="M9 14 4 9l5-5"></path><path d="M4 9h10a6 6 0 1 1 0 12h-1"></path>',
@@ -95,6 +98,10 @@ let syncState = {
   pollTimer: null
 };
 
+let reminderState = readJSON(localStorage.getItem(REMINDER_META_KEY), { lastSent: {} });
+if (!reminderState || typeof reminderState !== 'object') reminderState = { lastSent: {} };
+if (!reminderState.lastSent || typeof reminderState.lastSent !== 'object') reminderState.lastSent = {};
+
 if (dataCleanupPending) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
   syncState.meta.localDirty = true;
@@ -104,6 +111,12 @@ if (dataCleanupPending) {
 document.addEventListener('DOMContentLoaded', init);
 
 function init() {
+  if (syncEnabled()) {
+    clearAuthSession();
+    setAppLocked(true);
+  } else {
+    setAppLocked(false);
+  }
   decorateIcons();
   bindEvents();
   $('#monthPicker').value = state.month;
@@ -113,9 +126,11 @@ function init() {
   $('#accessLoginInput').value = localStorage.getItem(LAST_LOGIN_KEY) || syncState.settings.ownerLogin || 'lincoln';
   render();
   setInterval(cleanupExpiredBoughtItems, 60 * 60 * 1000);
+  setInterval(checkDueNotifications, 5 * 60 * 1000);
   registerServiceWorker();
   prepareInstallPrompt();
   initializeAccess().catch(() => renderSyncStatus());
+  setTimeout(checkDueNotifications, 1500);
 }
 
 function bindEvents() {
@@ -126,6 +141,7 @@ function bindEvents() {
     if (document.visibilityState !== 'visible') return;
     const removed = cleanupExpiredBoughtItems();
     if (!removed && syncState.user) checkRemoteRevision().catch(() => {});
+    checkDueNotifications();
   });
   window.addEventListener('online', () => {
     if (syncState.user) (syncState.meta.localDirty ? pushRemoteData(false, false) : checkRemoteRevision()).catch(() => {});
@@ -133,14 +149,15 @@ function bindEvents() {
   $('#recordForm').addEventListener('submit', saveRecordFromForm);
   $('#taskForm').addEventListener('submit', saveTaskFromForm);
   $('#productForm').addEventListener('submit', saveProductFromForm);
-  $('#orderForm').addEventListener('submit', saveOrderFromForm);
   $('#quantityForm').addEventListener('submit', saveQuantityFromForm);
+  $('#reminderSettingsForm').addEventListener('submit', saveReminderSettings);
   $('#syncUserForm').addEventListener('submit', saveSyncUserFromForm);
   $('#registryForm').addEventListener('submit', saveRegistryEntry);
   $('#accessLoginForm').addEventListener('submit', handleAccessLogin);
   $('#syncSetupForm').addEventListener('submit', handleSyncSetup);
   $('#syncLoginForm').addEventListener('submit', handleSyncLogin);
   $('#importFileInput').addEventListener('change', handleImportFile);
+  $('#importProductsXlsxInput').addEventListener('change', importProductsXlsx);
   $('#loginDialog').addEventListener('cancel', event => event.preventDefault());
 }
 
@@ -150,7 +167,11 @@ function handleDocumentClick(event) {
     closeQuickActionsMenu();
   }
   const button = event.target.closest('button');
-  if (!button) return;
+  if (!button) {
+    const productCard = event.target.closest('.shopping-item[data-product-id]');
+    if (productCard) openProductDetails(productCard.dataset.productId);
+    return;
+  }
 
   const viewButton = button.closest('[data-view]');
   if (viewButton) {
@@ -303,14 +324,17 @@ function handleDocumentClick(event) {
   if (button.id === 'deleteSyncUserBtn') deleteSyncUser();
   if (button.id === 'quickStateBtn') runQuickStateAction();
   if (button.id === 'quickTaskProgressBtn') runQuickTaskProgressAction();
+  if (button.id === 'quickPriorityBtn') runQuickPriorityAction();
   if (button.id === 'quickEditBtn') runQuickEditAction();
   if (button.id === 'quickHeaderEditBtn') runQuickProductEditAction();
   if (button.id === 'quickEditOrderBtn') runQuickEditOrderAction();
   if (button.id === 'quickDeleteOrderBtn') runQuickDeleteOrderAction();
   if (button.id === 'manageCategoriesBtn') openRegistryDialog('categories');
-  if (button.id === 'manageSitesBtn') openRegistryDialog('sites');
   if (button.id === 'exportBtn') exportData();
   if (button.id === 'importBtn') $('#importFileInput').click();
+  if (button.id === 'exportProductsXlsxBtn') exportProductsXlsx();
+  if (button.id === 'importProductsXlsxBtn') $('#importProductsXlsxInput').click();
+  if (button.id === 'notificationPermissionBtn') requestNotificationPermission();
   if (button.id === 'clearBoughtBtn') clearBoughtItems();
   if (button.id === 'accessLoginBtn') {
     event.preventDefault();
@@ -581,16 +605,16 @@ function renderMarket() {
 
 function renderQuickOptions() {
   const categories = marketCategories();
-  $('#categoryOptions').innerHTML = categories
-    .map(category => `<option value="${escapeAttr(category)}" label="${escapeAttr(`${categoryEmoji(category)} ${category}`)}"></option>`)
+  const productCategorySelect = $('#productCategory');
+  const selectedCategory = productCategorySelect.value;
+  productCategorySelect.innerHTML = categories
+    .map(category => `<option value="${escapeAttr(category)}">${escapeHTML(`${categoryEmoji(category)} ${category}`)}</option>`)
     .join('');
+  if (categories.includes(selectedCategory)) productCategorySelect.value = selectedCategory;
   $('#marketCategoryFilter').innerHTML = [['all', 'Todas']].concat(categories.map(category => [category, `${categoryEmoji(category)} ${category}`]))
     .map(([value, label]) => `<option value="${escapeAttr(value)}">${escapeHTML(label)}</option>`)
     .join('');
   $('#marketCategoryFilter').value = state.marketCategory;
-  $('#siteOptions').innerHTML = (db.pantry.sites || [])
-    .map(site => `<option value="${escapeAttr(site)}"></option>`)
-    .join('');
 }
 
 function renderShoppingList() {
@@ -631,8 +655,127 @@ function renderShoppingList() {
 
 function renderSettings() {
   $('#versionPill').textContent = `v${APP_VERSION}`;
+  renderReminderSettings();
   renderSyncUsers();
   renderAudit();
+}
+
+function renderReminderSettings() {
+  const reminders = db.settings.reminders;
+  $('#remindersEnabled').checked = reminders.enabled === true;
+  $('#reminderDaysBefore').value = String(reminders.daysBefore ?? 2);
+  $('#reminderFrequencyHours').value = String(reminders.frequencyHours || 6);
+  const supported = 'Notification' in window;
+  const permission = supported ? Notification.permission : 'unsupported';
+  const active = reminders.enabled && permission === 'granted';
+  const pill = $('#reminderStatusPill');
+  pill.textContent = active ? 'Ativos' : reminders.enabled ? 'Sem permissão' : 'Desativados';
+  pill.className = `status-pill${active ? ' good' : ''}`;
+  const permissionButton = $('#notificationPermissionBtn');
+  permissionButton.disabled = !supported || permission === 'denied';
+  permissionButton.innerHTML = iconSvg('bell') + (permission === 'granted' ? 'Notificações permitidas' : permission === 'denied' ? 'Permissão bloqueada' : 'Permitir notificações');
+}
+
+function saveReminderSettings(event) {
+  event.preventDefault();
+  db.settings.reminders.enabled = $('#remindersEnabled').checked;
+  db.settings.reminders.daysBefore = Math.max(0, Math.min(30, Number($('#reminderDaysBefore').value || 0)));
+  db.settings.reminders.frequencyHours = Math.max(1, Number($('#reminderFrequencyHours').value || 6));
+  addAudit('alterou', 'os lembretes', db.settings.reminders.enabled ? 'Ativados' : 'Desativados');
+  saveData();
+  checkDueNotifications();
+  toast('Lembretes atualizados.', 'good');
+}
+
+async function requestNotificationPermission() {
+  if (!('Notification' in window)) return toast('Este navegador não oferece notificações.', 'error');
+  const permission = await Notification.requestPermission();
+  if (permission === 'granted') {
+    db.settings.reminders.enabled = true;
+    saveData();
+    checkDueNotifications();
+    toast('Notificações permitidas.', 'good');
+  } else {
+    renderReminderSettings();
+    toast('A permissão de notificações não foi concedida.', 'error');
+  }
+}
+
+async function checkDueNotifications() {
+  const reminders = db.settings.reminders;
+  if (!reminders?.enabled || !('Notification' in window) || Notification.permission !== 'granted' || document.body.classList.contains('app-locked')) return;
+  const now = Date.now();
+  const daysBeforeMs = Number(reminders.daysBefore || 0) * 24 * 60 * 60 * 1000;
+  const frequencyMs = Number(reminders.frequencyHours || 6) * 60 * 60 * 1000;
+  const candidates = [];
+
+  visible(db.finances.expenses)
+    .filter(item => item.status !== 'paid' && !isCardExpense(item))
+    .forEach(item => {
+      const dueAt = expenseDueTimestamp(item);
+      if (dueAt && now >= dueAt - daysBeforeMs) {
+        candidates.push({ key: `expense:${item.id}`, title: 'Conta próxima do vencimento', body: `${item.title} - ${formatMoney(item.amount)} - dia ${String(item.dueDay || 1).padStart(2, '0')}`, view: 'finances' });
+      }
+    });
+
+  visible(db.tasks)
+    .filter(item => item.status !== 'completed')
+    .forEach(item => {
+      const dueAt = taskDueTimestamp(item);
+      if (dueAt && now >= dueAt - daysBeforeMs) {
+        candidates.push({ key: `task:${item.id}`, title: 'Pendência próxima do prazo', body: `${item.title} - ${item.owner || 'Todos'} - ${dateOrDash(item.dueDate)}`, view: 'tasks' });
+      }
+    });
+
+  visible(db.pantry.list)
+    .filter(item => item.status !== 'bought' && item.priority === 'high')
+    .forEach(item => candidates.push({ key: `market:${item.id}`, title: 'Prioridade alta na feira', body: `${item.name} - ${formatQuantity(item.qty || 1)} ${item.unit || 'un'}`, view: 'market' }));
+
+  for (const candidate of candidates) {
+    const lastSent = Number(reminderState.lastSent?.[candidate.key] || 0);
+    if (now - lastSent < frequencyMs) continue;
+    const sent = await showAppNotification(candidate);
+    if (sent) {
+      reminderState.lastSent[candidate.key] = now;
+      localStorage.setItem(REMINDER_META_KEY, JSON.stringify(reminderState));
+    }
+  }
+}
+
+async function showAppNotification(notification) {
+  try {
+    const options = {
+      body: notification.body,
+      icon: 'icon.svg',
+      badge: 'icon.svg',
+      tag: notification.key,
+      renotify: true,
+      data: { view: notification.view }
+    };
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification(notification.title, options);
+    } else {
+      new Notification(notification.title, options);
+    }
+    return true;
+  } catch (error) {
+    console.warn('Notification', error);
+    return false;
+  }
+}
+
+function expenseDueTimestamp(item) {
+  const [year, month] = String(item.month || currentMonth()).split('-').map(Number);
+  if (!year || !month) return 0;
+  const lastDay = new Date(year, month, 0).getDate();
+  return new Date(year, month - 1, Math.min(Number(item.dueDay || 1), lastDay), 9, 0, 0, 0).getTime();
+}
+
+function taskDueTimestamp(item) {
+  const [year, month, day] = String(item.dueDate || '').split('-').map(Number);
+  if (!year || !month || !day) return 0;
+  return new Date(year, month - 1, day, 9, 0, 0, 0).getTime();
 }
 
 function renderSyncUsers() {
@@ -863,7 +1006,8 @@ function shoppingRow(entry) {
   const status = item?.status || 'stocked';
   const ordered = status === 'ordered';
   const bought = status === 'bought';
-  const completionLabel = ordered || (bought && (item?.completionType === 'received' || item?.site)) ? 'Recebido' : 'Comprado';
+  const completionLabel = ordered || (bought && item?.completionType === 'received') ? 'Recebido' : 'Comprado';
+  const highPriority = item?.priority === 'high';
   const draftQty = Number(state.marketDraftQty[product.id] ?? product.defaultQty ?? 1);
   const qty = item?.qty || draftQty;
   const unit = item?.unit || state.marketDraftUnit[product.id] || product.unit || 'un';
@@ -880,11 +1024,11 @@ function shoppingRow(entry) {
         <button class="quantity-tick" type="button" data-mark-product-needed="${escapeAttr(product.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>
       </div>`;
   return `
-    <article class="shopping-item status-${escapeAttr(status)} ${item ? 'has-request' : 'has-draft'}" data-product-id="${escapeAttr(product.id)}">
+    <article class="shopping-item status-${escapeAttr(status)} ${item ? 'has-request' : 'has-draft'} ${highPriority ? 'is-high-priority' : ''}" data-product-id="${escapeAttr(product.id)}">
       <button class="product-emoji" type="button" data-product-actions data-id="${escapeAttr(product.id)}" data-list-id="${escapeAttr(item?.id || '')}" title="Ações de ${escapeAttr(product.name)}" aria-label="Abrir ações de ${escapeAttr(product.name)}">${productEmoji(product)}</button>
       <div class="data-main">
-        <strong>${escapeHTML(product.name)}</strong>
-        <small>${escapeHTML(`${product.category || 'Mercado'}${item?.site ? ` · ${item.site}` : ''}`)}</small>
+        <strong>${highPriority ? '<span class="priority-star" aria-label="Prioridade alta">★</span> ' : ''}${escapeHTML(product.name)}</strong>
+        <small>${escapeHTML(product.category || 'Mercado')}</small>
       </div>
       ${controls}
     </article>
@@ -1196,6 +1340,7 @@ function openTaskActions(id, anchor) {
   $('#quickActionsEyebrow').textContent = 'Pendência';
   $('#quickActionsTitle').textContent = item.title;
   $('#quickTaskProgressBtn').hidden = completed;
+  $('#quickPriorityBtn').hidden = true;
   $('#quickStateBtn').hidden = false;
   $('#quickHeaderEditBtn').hidden = true;
   $('#quickEditBtn').hidden = false;
@@ -1209,6 +1354,7 @@ function openTaskActions(id, anchor) {
 
 function openProductDialog(id = '') {
   const product = id ? db.pantry.products.find(item => item.id === id) : null;
+  renderQuickOptions();
   $('#productDialogTitle').textContent = product ? 'Editar produto' : 'Novo produto';
   $('#productId').value = product?.id || '';
   $('#productName').value = product?.name || '';
@@ -1217,10 +1363,8 @@ function openProductDialog(id = '') {
   $('#productUnit').value = product?.units || product?.unit || 'un';
   $('#productGoodBrands').value = product?.goodBrands || '';
   $('#productBadBrands').value = product?.badBrands || '';
-  $('#productSites').value = product?.sites || '';
   $('#productNotes').value = product?.notes || '';
   $('#deleteProductBtn').hidden = !product;
-  renderQuickOptions();
   $('#productDialog').showModal();
   $('#productName').focus();
 }
@@ -1242,16 +1386,114 @@ function saveProductFromForm(event) {
   product.unit = units[0] || 'un';
   product.goodBrands = $('#productGoodBrands').value.trim();
   product.badBrands = $('#productBadBrands').value.trim();
-  product.sites = $('#productSites').value.trim();
   product.notes = $('#productNotes').value.trim();
   product.updatedAt = now;
 
   if (!existing) db.pantry.products.push(product);
-  if (!db.pantry.categories.includes(product.category)) db.pantry.categories.push(product.category);
+  ensureMarketCategory(product.category);
   addAudit(existing ? 'alterou' : 'cadastrou', 'produto', product.name);
   saveData();
   closeDialog('productDialog');
   toast('Produto salvo.', 'good');
+}
+
+function openProductDetails(productId) {
+  const product = db.pantry.products.find(item => item.id === productId && !item.deletedAt);
+  if (!product) return;
+  $('#productDetailsTitle').textContent = product.name;
+  $('#productDetailsCategory').textContent = `${categoryEmoji(product.category)} ${product.category || 'Mercado'}`;
+  $('#productDetailsGoodBrands').textContent = product.goodBrands || 'Não informado';
+  $('#productDetailsBadBrands').textContent = product.badBrands || 'Não informado';
+  $('#productDetailsNotes').textContent = product.notes || 'Não informado';
+  $('#productDetailsDialog').showModal();
+}
+
+function exportProductsXlsx() {
+  if (!window.XLSX) return toast('Não foi possível carregar o recurso de planilhas.', 'error');
+  const rows = visible(db.pantry.products)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(product => ({
+      Nome: product.name,
+      Categoria: product.category || 'Mercado',
+      'Qtd. padrão': Number(product.defaultQty || 1),
+      'Unidades de compra': product.units || product.unit || 'un'
+    }));
+  const worksheet = XLSX.utils.json_to_sheet(rows, { header: ['Nome', 'Categoria', 'Qtd. padrão', 'Unidades de compra'] });
+  worksheet['!cols'] = [{ wch: 30 }, { wch: 22 }, { wch: 14 }, { wch: 28 }];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos');
+  XLSX.writeFile(workbook, `produtos_feira_${dateStamp()}.xlsx`);
+}
+
+async function importProductsXlsx(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    if (!window.XLSX) throw new Error('O recurso de planilhas não foi carregado.');
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+    const now = Date.now();
+    let created = 0;
+    let updated = 0;
+
+    rows.forEach(row => {
+      const values = Object.fromEntries(Object.entries(row).map(([key, value]) => [normalizeText(key), value]));
+      const name = String(values.nome || '').trim();
+      if (!name) return;
+      const category = String(values.categoria || 'Mercado').trim() || 'Mercado';
+      const qty = parseDecimal(values['qtd. padrao']) || 1;
+      const units = parseRegistryValues(String(values['unidades de compra'] || 'un'));
+      let product = db.pantry.products.find(item => normalizeText(item.name) === normalizeText(name));
+      if (product) {
+        updated += 1;
+      } else {
+        created += 1;
+        product = { id: uid('product'), name, goodBrands: '', badBrands: '', notes: '', createdAt: now };
+        db.pantry.products.push(product);
+      }
+      product.name = name;
+      product.category = category;
+      product.defaultQty = qty;
+      product.units = units.join('; ') || 'un';
+      product.unit = units[0] || 'un';
+      product.deletedAt = 0;
+      product.updatedAt = now;
+      ensureMarketCategory(category);
+    });
+
+    if (!created && !updated) throw new Error('Nenhum produto válido foi encontrado na planilha.');
+    addAudit('importou', 'produtos da feira', `${created} novos e ${updated} atualizados`);
+    saveData();
+    toast(`${created} novos e ${updated} atualizados.`, 'good');
+  } catch (error) {
+    toast(error.message || 'Não foi possível importar a planilha.', 'error');
+  } finally {
+    event.target.value = '';
+  }
+}
+
+function ensureMarketCategory(name) {
+  const categoryName = String(name || 'Mercado').trim() || 'Mercado';
+  const now = Date.now();
+  let category = (db.pantry.categoryMeta || []).find(entry => normalizeText(entry.name) === normalizeText(categoryName));
+  if (!category) {
+    const order = visible(db.pantry.categoryMeta || []).reduce((highest, entry) => Math.max(highest, Number(entry.order || 0)), -1) + 1;
+    category = {
+      id: categoryId(categoryName),
+      name: categoryName,
+      emoji: defaultCategoryEmoji(categoryName),
+      order,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: 0
+    };
+    db.pantry.categoryMeta.push(category);
+  } else if (category.deletedAt) {
+    category.deletedAt = 0;
+    category.updatedAt = now;
+  }
+  if (!(db.pantry.categories || []).some(entry => normalizeText(entry) === normalizeText(categoryName))) db.pantry.categories.push(categoryName);
 }
 
 function deleteCurrentProduct() {
@@ -1289,7 +1531,6 @@ function ensureProduct(name, qty = '', unit = '') {
     unit: unit.trim() || 'un',
     goodBrands: '',
     badBrands: '',
-    sites: '',
     notes: '',
     createdAt: now,
     updatedAt: now
@@ -1316,7 +1557,6 @@ function addProductToShoppingList(productId, qty = '', unit = '') {
       qty: parseDecimal(qty) || product.defaultQty || 1,
       unit: (unit || product.unit || 'un').trim(),
       status: 'needed',
-      site: '',
       note: product.notes || '',
       createdAt: now,
       updatedAt: now
@@ -1339,7 +1579,6 @@ function markProductNeeded(productId) {
     item.status = 'needed';
     item.qty = Number(item.qty || product.defaultQty || 1);
     item.unit = item.unit || product.unit || 'un';
-    item.site = '';
     item.completionType = '';
     item.boughtAt = 0;
     item.updatedAt = now;
@@ -1353,7 +1592,6 @@ function markProductNeeded(productId) {
       qty: requestedQty > 0 ? requestedQty : 1,
       unit: requestedUnit,
       status: 'needed',
-      site: '',
       note: product.notes || '',
       createdAt: now,
       updatedAt: now,
@@ -1410,7 +1648,10 @@ function openQuantityDialog(id) {
   const product = db.pantry.products.find(entry => entry.id === item.productId);
   fillQuantityUnitOptions(product);
   $('#quantityDialog').showModal();
-  $('#quantityValueInput').focus();
+  setTimeout(() => {
+    $('#quantityValueInput').focus();
+    $('#quantityValueInput').select();
+  }, 0);
 }
 
 function openDraftQuantityDialog(productId) {
@@ -1423,7 +1664,10 @@ function openDraftQuantityDialog(productId) {
   $('#quantityUnitInput').value = state.marketDraftUnit[product.id] || product.unit || 'un';
   fillQuantityUnitOptions(product);
   $('#quantityDialog').showModal();
-  $('#quantityValueInput').focus();
+  setTimeout(() => {
+    $('#quantityValueInput').focus();
+    $('#quantityValueInput').select();
+  }, 0);
 }
 
 function fillQuantityUnitOptions(product) {
@@ -1464,7 +1708,6 @@ function setShoppingStatus(id, status) {
     if (item.status === 'ordered') {
       freezeMarketOrder();
       item.status = 'needed';
-      item.site = '';
       item.completionType = '';
       item.boughtAt = 0;
       item.updatedAt = Date.now();
@@ -1473,14 +1716,20 @@ function setShoppingStatus(id, status) {
       toast('Item voltou para pendente.', 'good');
       return;
     }
-    openOrderDialog(id);
+    freezeMarketOrder();
+    item.status = 'ordered';
+    item.completionType = '';
+    item.boughtAt = 0;
+    item.updatedAt = Date.now();
+    addAudit('registrou pedido', 'item da feira', item.name);
+    saveData();
+    toast('Pedido registrado.', 'good');
     return;
   }
 
   if (status === 'bought' && item.status === 'bought') {
     freezeMarketOrder();
     item.status = 'needed';
-    item.site = '';
     item.completionType = '';
     item.boughtAt = 0;
     item.updatedAt = Date.now();
@@ -1500,39 +1749,6 @@ function setShoppingStatus(id, status) {
   }
   addAudit(item.completionType === 'received' ? 'marcou como recebido' : 'marcou como comprado', 'item da feira', item.name);
   saveData();
-}
-
-function openOrderDialog(id) {
-  const item = db.pantry.list.find(entry => entry.id === id);
-  if (!item) return;
-  const product = db.pantry.products.find(entry => entry.id === item.productId);
-  const productSites = String(product?.sites || '').split(/[;,]/).map(site => site.trim()).filter(Boolean);
-  const sites = dedupeTextValues([...(db.pantry.sites || []), ...productSites, item.site]);
-  const siteSelect = $('#orderSiteInput');
-  $('#orderItemId').value = id;
-  siteSelect.innerHTML = [
-    '<option value="">Não informar</option>',
-    ...sites.map(site => `<option value="${escapeAttr(site)}">${escapeHTML(site)}</option>`)
-  ].join('');
-  siteSelect.value = item.site || '';
-  $('#orderDialog').showModal();
-  siteSelect.focus();
-}
-
-function saveOrderFromForm(event) {
-  event.preventDefault();
-  const item = db.pantry.list.find(entry => entry.id === $('#orderItemId').value);
-  if (!item) return;
-  freezeMarketOrder();
-  item.site = $('#orderSiteInput').value.trim();
-  item.status = 'ordered';
-  item.completionType = '';
-  item.boughtAt = 0;
-  item.updatedAt = Date.now();
-  addAudit('registrou pedido', 'item da feira', `${item.name}${item.site ? ` em ${item.site}` : ''}`);
-  saveData();
-  closeDialog('orderDialog');
-  toast('Pedido registrado.', 'good');
 }
 
 function freezeMarketOrder() {
@@ -1557,6 +1773,7 @@ function openRecordActions(type, id, anchor) {
   $('#quickActionsEyebrow').textContent = ({ expense: 'Despesa', income: 'Receita', account: 'Conta ou reserva', receivable: 'A receber', debt: 'Dívida' })[type] || 'Registro';
   $('#quickActionsTitle').textContent = config.title;
   $('#quickTaskProgressBtn').hidden = true;
+  $('#quickPriorityBtn').hidden = true;
   $('#quickStateBtn').hidden = type === 'account';
   $('#quickHeaderEditBtn').hidden = true;
   $('#quickEditBtn').hidden = false;
@@ -1570,12 +1787,16 @@ function openRecordActions(type, id, anchor) {
 function openProductActions(id, listId, anchor) {
   const product = db.pantry.products.find(entry => entry.id === id && !entry.deletedAt);
   if (!product) return;
+  const listItem = db.pantry.list.find(entry => entry.id === listId && !entry.deletedAt);
+  const canPrioritize = Boolean(listItem && listItem.status !== 'bought');
   $('#quickActionsType').value = 'product';
   $('#quickActionsId').value = product.id;
   $('#quickActionsItemId').value = listId || '';
   $('#quickActionsEyebrow').textContent = 'Produto';
   $('#quickActionsTitle').textContent = product.name;
   $('#quickTaskProgressBtn').hidden = true;
+  $('#quickPriorityBtn').hidden = !canPrioritize;
+  $('#quickPriorityBtn').innerHTML = iconSvg(listItem?.priority === 'high' ? 'undo' : 'star') + (listItem?.priority === 'high' ? 'Remover prioridade alta' : 'Marcar prioridade alta');
   $('#quickStateBtn').hidden = true;
   $('#quickEditBtn').hidden = true;
   $('#quickHeaderEditBtn').hidden = false;
@@ -1616,6 +1837,20 @@ function runQuickTaskProgressAction() {
   if ($('#quickActionsType').value !== 'task') return;
   toggleTaskProgress(id);
   closeQuickActionsMenu();
+}
+
+function runQuickPriorityAction() {
+  const itemId = $('#quickActionsItemId').value;
+  const item = db.pantry.list.find(entry => entry.id === itemId && !entry.deletedAt && entry.status !== 'bought');
+  if (!item) return;
+  const highPriority = item.priority === 'high';
+  item.priority = highPriority ? 'normal' : 'high';
+  item.updatedAt = Date.now();
+  addAudit(highPriority ? 'removeu a prioridade de' : 'marcou como prioridade alta', 'o item da feira', item.name);
+  closeQuickActionsMenu();
+  saveData();
+  if (!highPriority) checkDueNotifications();
+  toast(highPriority ? 'Prioridade removida.' : 'Item com prioridade alta.', 'good');
 }
 
 function runQuickEditAction() {
@@ -1871,15 +2106,14 @@ function marketCategories() {
   return names;
 }
 
-function openRegistryDialog(type) {
-  state.registryType = type;
-  const categories = type === 'categories';
-  $('#registryDialogTitle').textContent = categories ? 'Categorias' : 'Sites e lojas';
-  $('#registryInputLabel').textContent = categories ? 'Nova categoria' : 'Novo site ou loja';
-  $('#registryInput').placeholder = categories ? 'Frios; Secos; Hortifruti' : 'Amazon; Shopee; Mercado Livre';
+function openRegistryDialog() {
+  state.registryType = 'categories';
+  $('#registryDialogTitle').textContent = 'Categorias';
+  $('#registryInputLabel').textContent = 'Nova categoria';
+  $('#registryInput').placeholder = 'Frios; Secos; Hortifruti';
   $('#registryInput').value = '';
-  $('#registryEmojiWrap').hidden = !categories;
-  $('#registryForm').classList.toggle('is-sites', !categories);
+  $('#registryEmojiWrap').hidden = false;
+  $('#registryForm').classList.remove('is-sites');
   $('#registryEmojiInput').value = '📦';
   renderRegistryList();
   $('#registryDialog').showModal();
@@ -1887,19 +2121,6 @@ function openRegistryDialog(type) {
 }
 
 function renderRegistryList() {
-  if (state.registryType === 'sites') {
-    const values = (db.pantry.sites || []).slice().sort((a, b) => a.localeCompare(b));
-    $('#registryList').innerHTML = values.length
-      ? values.map(value => `
-        <div class="registry-row">
-          <span>${escapeHTML(value)}</span>
-          <button class="icon-btn" type="button" data-delete-registry data-value="${escapeAttr(value)}" title="Excluir" aria-label="Excluir ${escapeAttr(value)}">${iconSvg('trash-2')}</button>
-        </div>
-      `).join('')
-      : emptyState('Nenhum cadastro ainda.');
-    return;
-  }
-
   const categories = visible(db.pantry.categoryMeta || [])
     .sort((a, b) => Number(a.order || 0) - Number(b.order || 0) || a.name.localeCompare(b.name));
   $('#registryList').innerHTML = categories.length
@@ -1921,57 +2142,49 @@ function saveRegistryEntry(event) {
   event.preventDefault();
   const values = parseRegistryValues($('#registryInput').value);
   if (!values.length) return;
-  const key = state.registryType === 'sites' ? 'sites' : 'categories';
-  if (key === 'sites') {
-    db.pantry.sites = Array.from(new Set((db.pantry.sites || []).concat(values)));
-  } else {
-    const now = Date.now();
-    const requestedEmoji = $('#registryEmojiInput').value.trim();
-    let nextOrder = visible(db.pantry.categoryMeta || []).reduce((highest, entry) => Math.max(highest, Number(entry.order || 0)), -1) + 1;
-    values.forEach(name => {
-      const existing = (db.pantry.categoryMeta || []).find(entry => normalizeText(entry.name) === normalizeText(name));
-      if (existing) {
-        existing.name = name;
-        existing.emoji = requestedEmoji || existing.emoji || defaultCategoryEmoji(name);
-        existing.deletedAt = 0;
-        existing.updatedAt = now;
-      } else {
-        db.pantry.categoryMeta.push({
-          id: categoryId(name),
-          name,
-          emoji: requestedEmoji || defaultCategoryEmoji(name),
-          order: nextOrder++,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: 0
-        });
-      }
-      if (!(db.pantry.categories || []).some(entry => normalizeText(entry) === normalizeText(name))) db.pantry.categories.push(name);
-    });
-  }
-  addAudit('cadastrou', key === 'sites' ? 'sites da feira' : 'categorias da feira', values.join(', '));
+  const now = Date.now();
+  const requestedEmoji = $('#registryEmojiInput').value.trim();
+  let nextOrder = visible(db.pantry.categoryMeta || []).reduce((highest, entry) => Math.max(highest, Number(entry.order || 0)), -1) + 1;
+  values.forEach(name => {
+    const existing = (db.pantry.categoryMeta || []).find(entry => normalizeText(entry.name) === normalizeText(name));
+    if (existing) {
+      existing.name = name;
+      existing.emoji = requestedEmoji || existing.emoji || defaultCategoryEmoji(name);
+      existing.deletedAt = 0;
+      existing.updatedAt = now;
+    } else {
+      db.pantry.categoryMeta.push({
+        id: categoryId(name),
+        name,
+        emoji: requestedEmoji || defaultCategoryEmoji(name),
+        order: nextOrder++,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: 0
+      });
+    }
+    if (!(db.pantry.categories || []).some(entry => normalizeText(entry) === normalizeText(name))) db.pantry.categories.push(name);
+  });
+  addAudit('cadastrou', 'categorias da feira', values.join(', '));
   saveData();
   $('#registryInput').value = '';
-  if (key === 'categories') $('#registryEmojiInput').value = '📦';
+  $('#registryEmojiInput').value = '📦';
   renderRegistryList();
   renderQuickOptions();
 }
 
 function deleteRegistryEntry(value) {
-  const key = state.registryType === 'sites' ? 'sites' : 'categories';
-  if (key === 'categories' && visible(db.pantry.products).some(product => normalizeText(product.category) === normalizeText(value))) {
+  if (visible(db.pantry.products).some(product => normalizeText(product.category) === normalizeText(value))) {
     return toast('Esta categoria ainda está sendo usada por um produto.', 'error');
   }
-  db.pantry[key] = (db.pantry[key] || []).filter(entry => entry !== value);
-  if (key === 'categories') {
-    const category = (db.pantry.categoryMeta || []).find(entry => normalizeText(entry.name) === normalizeText(value));
-    if (category) {
-      category.deletedAt = Date.now();
-      category.updatedAt = category.deletedAt;
-    }
+  db.pantry.categories = (db.pantry.categories || []).filter(entry => entry !== value);
+  const category = (db.pantry.categoryMeta || []).find(entry => normalizeText(entry.name) === normalizeText(value));
+  if (category) {
+    category.deletedAt = Date.now();
+    category.updatedAt = category.deletedAt;
   }
-  if (key === 'categories' && state.marketCategory === value) state.marketCategory = 'all';
-  addAudit('excluiu', key === 'sites' ? 'o site da feira' : 'a categoria da feira', value);
+  if (state.marketCategory === value) state.marketCategory = 'all';
+  addAudit('excluiu', 'a categoria da feira', value);
   saveData();
   renderRegistryList();
   renderQuickOptions();
@@ -2094,7 +2307,6 @@ function defaultDB() {
     unit,
     goodBrands: '',
     badBrands: '',
-    sites: '',
     notes: '',
     createdAt: now,
     updatedAt: now
@@ -2107,7 +2319,12 @@ function defaultDB() {
     updatedAt: now,
     settings: {
       householdName: 'Nossa casa',
-      members: OWNERS
+      members: OWNERS,
+      reminders: {
+        enabled: false,
+        daysBefore: 2,
+        frequencyHours: 6
+      }
     },
     finances: {
       expenses: [],
@@ -2124,7 +2341,6 @@ function defaultDB() {
     pantry: {
       categories: DEFAULT_MARKET_CATEGORIES.slice(),
       categoryMeta,
-      sites: [],
       products: seedProducts,
       list: []
     },
@@ -2143,6 +2359,7 @@ function normalizeDB(input) {
     pantry: { ...base.pantry, ...(data.pantry || {}) }
   };
   normalized.appId = APP_ID;
+  normalized.settings.reminders = { ...base.settings.reminders, ...(data.settings?.reminders || {}) };
   normalized.schemaVersion = 1;
   ['expenses', 'incomes', 'accounts', 'receivables', 'debts', 'recurring'].forEach(key => {
     normalized.finances[key] = Array.isArray(normalized.finances[key]) ? normalized.finances[key].map(normalizeItem) : [];
@@ -2163,7 +2380,6 @@ function normalizeDB(input) {
     order: Number.isFinite(Number(entry.order)) ? Number(entry.order) : index
   })).filter(entry => entry.name);
   normalized.pantry.categories = Array.from(new Set(normalized.pantry.categories.concat(normalized.pantry.categoryMeta.map(entry => entry.name))));
-  normalized.pantry.sites = Array.isArray(normalized.pantry.sites) ? normalized.pantry.sites : [];
   normalized.audit = Array.isArray(normalized.audit) ? normalized.audit.map(normalizeItem) : [];
   return normalizeLogicalDuplicates(normalized);
 }
@@ -2189,6 +2405,7 @@ async function initializeAccess() {
     syncState.meta.serverTime = status.serverTime || 0;
     saveSyncMeta();
     if (!syncState.meta.initialized) {
+      setAppLocked(false);
       setView('settings');
       return;
     }
@@ -2197,13 +2414,16 @@ async function initializeAccess() {
       return;
     }
     await initializeSync();
+    if (syncState.user) setAppLocked(false);
   } catch (error) {
     console.warn('Access initialization failed', error);
     renderSyncStatus();
+    showLoginDialog();
   }
 }
 
 function showLoginDialog() {
+  setAppLocked(true);
   $('#accessLoginInput').value = localStorage.getItem(LAST_LOGIN_KEY) || syncState.settings.ownerLogin || '';
   $('#accessPasswordInput').value = '';
   $('#accessLoginError').hidden = true;
@@ -2251,6 +2471,8 @@ async function authenticateSync(login, password) {
   await refreshSyncUsers();
   startSyncPolling();
   render();
+  setAppLocked(false);
+  checkDueNotifications();
 }
 
 async function initializeSync() {
@@ -2552,6 +2774,7 @@ function logoutSync() {
     return;
   }
   if (syncState.token && syncEnabled()) syncRequest('logout').catch(() => {});
+  setAppLocked(true);
   clearAuthSession();
   renderSyncStatus();
   renderSyncUsers();
@@ -2561,6 +2784,10 @@ function logoutSync() {
 
 function lockApp() {
   logoutSync();
+}
+
+function setAppLocked(locked) {
+  document.body.classList.toggle('app-locked', locked);
 }
 
 async function refreshSyncUsers() {
@@ -2747,7 +2974,7 @@ function normalizeLogicalDuplicates(data) {
   activeProducts.forEach(group => {
     group.sort((a, b) => productRecordScore(b) - productRecordScore(a) || itemStamp(b) - itemStamp(a));
     const canonical = clone(group[0]);
-    ['category', 'unit', 'units', 'goodBrands', 'badBrands', 'sites', 'notes'].forEach(field => {
+    ['category', 'unit', 'units', 'goodBrands', 'badBrands', 'notes'].forEach(field => {
       if (!canonical[field]) canonical[field] = group.find(item => item[field])?.[field] || '';
     });
     if (!(Number(canonical.defaultQty) > 0)) canonical.defaultQty = Number(group.find(item => Number(item.defaultQty) > 0)?.defaultQty || 1);
@@ -2772,7 +2999,6 @@ function normalizeLogicalDuplicates(data) {
   });
   data.pantry.list = deletedListItems.concat(Array.from(activeListItems.values()));
   data.pantry.categories = dedupeTextValues(data.pantry.categories || []);
-  data.pantry.sites = dedupeTextValues(data.pantry.sites || []);
   return data;
 }
 
@@ -2784,7 +3010,7 @@ function accountRecordScore(account) {
 
 function productRecordScore(product) {
   return (String(product.id || '').includes('_') ? 4 : 0)
-    + ['units', 'goodBrands', 'badBrands', 'sites', 'notes'].filter(field => product[field]).length;
+    + ['units', 'goodBrands', 'badBrands', 'notes'].filter(field => product[field]).length;
 }
 
 function dedupeTextValues(values) {

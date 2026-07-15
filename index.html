@@ -9,7 +9,7 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body class="app-locked">
   <div class="app-shell">
     <header class="topbar">
       <div class="brand-lockup">
@@ -289,8 +289,54 @@
             </div>
             <div class="settings-command-list">
               <button class="secondary-btn" type="button" id="manageCategoriesBtn" data-icon="package">Cadastrar categorias</button>
-              <button class="secondary-btn" type="button" id="manageSitesBtn" data-icon="shopping-basket">Cadastrar sites</button>
             </div>
+          </article>
+
+          <article class="panel reminder-panel">
+            <div class="panel-title">
+              <div class="settings-title-lockup">
+                <span class="settings-emoji" aria-hidden="true">🔔</span>
+                <div>
+                  <h3>Lembretes</h3>
+                  <p>Contas, pendências e feira</p>
+                </div>
+              </div>
+              <span class="status-pill" id="reminderStatusPill">Desativados</span>
+            </div>
+            <form class="settings-form" id="reminderSettingsForm">
+              <label class="switch-row compact-switch">
+                <span>
+                  <strong>Ativar lembretes</strong>
+                  <small>Usar as notificações deste aparelho.</small>
+                </span>
+                <input id="remindersEnabled" type="checkbox" />
+                <i aria-hidden="true"></i>
+              </label>
+              <div class="form-grid two">
+                <label>
+                  <span>A partir de</span>
+                  <div class="input-suffix">
+                    <input id="reminderDaysBefore" type="number" min="0" max="30" step="1" />
+                    <small>dias antes</small>
+                  </div>
+                </label>
+                <label>
+                  <span>Frequência</span>
+                  <select id="reminderFrequencyHours">
+                    <option value="1">A cada 1 hora</option>
+                    <option value="2">A cada 2 horas</option>
+                    <option value="3">A cada 3 horas</option>
+                    <option value="6">A cada 6 horas</option>
+                    <option value="12">A cada 12 horas</option>
+                    <option value="24">A cada 24 horas</option>
+                  </select>
+                </label>
+              </div>
+              <div class="action-row reminder-actions">
+                <button class="secondary-btn" type="button" id="notificationPermissionBtn" data-icon="bell">Permitir notificações</button>
+                <button class="primary-btn" type="submit" data-icon="check">Salvar</button>
+              </div>
+            </form>
           </article>
 
           <article class="panel">
@@ -417,9 +463,14 @@
     <form method="dialog" class="modal-card" id="productForm">
       <div class="modal-title">
         <h3 id="productDialogTitle">Produto</h3>
-        <button class="icon-btn" type="button" data-close-dialog="productDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+        <div class="modal-title-actions">
+          <button class="icon-btn" type="button" id="importProductsXlsxBtn" aria-label="Importar produtos em XLSX" title="Importar produtos em XLSX" data-icon="upload"></button>
+          <button class="icon-btn" type="button" id="exportProductsXlsxBtn" aria-label="Exportar produtos em XLSX" title="Exportar produtos em XLSX" data-icon="download"></button>
+          <button class="icon-btn" type="button" data-close-dialog="productDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+        </div>
       </div>
       <input type="hidden" id="productId" />
+      <input id="importProductsXlsxInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
       <div class="form-grid">
         <label class="span-2">
           <span>Nome</span>
@@ -427,8 +478,7 @@
         </label>
         <label>
           <span>Categoria</span>
-          <input id="productCategory" list="categoryOptions" required />
-          <datalist id="categoryOptions"></datalist>
+          <select id="productCategory" required></select>
         </label>
         <label>
           <span>Qtd. padrão</span>
@@ -446,12 +496,7 @@
           <span>Marcas ruins</span>
           <input id="productBadBrands" placeholder="Separe por virgula" />
         </label>
-        <label>
-          <span>Sites</span>
-          <input id="productSites" list="siteOptions" placeholder="Site ou app" />
-          <datalist id="siteOptions"></datalist>
-        </label>
-        <label>
+        <label class="span-2">
           <span>Observação</span>
           <input id="productNotes" />
         </label>
@@ -465,25 +510,30 @@
     </form>
   </dialog>
 
-  <dialog class="modal" id="orderDialog">
-    <form method="dialog" class="modal-card" id="orderForm">
+  <dialog class="modal compact-modal product-details-dialog" id="productDetailsDialog">
+    <div class="modal-card">
       <div class="modal-title">
-        <h3>Onde foi pedido?</h3>
-        <button class="icon-btn" type="button" data-close-dialog="orderDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+        <div>
+          <p class="eyebrow" id="productDetailsCategory">Produto</p>
+          <h3 id="productDetailsTitle">Detalhes</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="productDetailsDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
       </div>
-      <input type="hidden" id="orderItemId" />
-      <label>
-        <span>Site ou loja</span>
-        <select id="orderSiteInput" class="order-site-select">
-          <option value="">Não informar</option>
-        </select>
-      </label>
-      <div class="modal-actions">
-        <span class="spacer"></span>
-        <button class="secondary-btn" type="button" data-close-dialog="orderDialog">Cancelar</button>
-        <button class="primary-btn" type="submit" data-icon="send">Salvar pedido</button>
+      <div class="product-details-grid">
+        <section>
+          <span>Marcas boas</span>
+          <strong id="productDetailsGoodBrands">Não informado</strong>
+        </section>
+        <section>
+          <span>Marcas ruins</span>
+          <strong id="productDetailsBadBrands">Não informado</strong>
+        </section>
+        <section class="span-2">
+          <span>Observação</span>
+          <strong id="productDetailsNotes">Não informado</strong>
+        </section>
       </div>
-    </form>
+    </div>
   </dialog>
 
   <dialog class="modal compact-modal" id="quantityDialog">
@@ -538,6 +588,7 @@
     <input type="hidden" id="quickActionsItemId" />
     <div class="quick-action-list">
       <button type="button" id="quickTaskProgressBtn" hidden>Iniciar execução</button>
+      <button type="button" id="quickPriorityBtn" hidden>Marcar prioridade alta</button>
       <button type="button" id="quickStateBtn">Desfazer pagamento</button>
       <button type="button" id="quickEditBtn">Editar</button>
       <button type="button" id="quickEditOrderBtn" hidden>Editar pedido</button>
@@ -682,6 +733,7 @@
 
   <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
 
+  <script src="xlsx.full.min.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
