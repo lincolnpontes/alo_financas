@@ -3769,3 +3769,308 @@ button.metric:focus-visible {
     font-size: 0.84rem;
   }
 }
+
+/* Reminder profiles, contextual details and local headers for 1.0.14 */
+body[data-active-view="finances"] .topbar,
+body[data-active-view="market"] .topbar,
+body[data-active-view="tasks"] .topbar {
+  display: none;
+}
+
+.view-title-lockup {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 11px;
+}
+
+.view-home-logo {
+  display: grid;
+  place-items: center;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.view-home-logo img {
+  display: block;
+  width: 44px;
+  height: 44px;
+}
+
+.view-home-logo:focus-visible {
+  outline: 3px solid rgba(31, 122, 111, 0.22);
+  outline-offset: 2px;
+}
+
+.settings-heading {
+  flex-direction: row;
+  align-items: center;
+}
+
+.settings-version-bar {
+  width: auto;
+  margin-left: auto;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.reminder-profile-list {
+  display: grid;
+}
+
+.reminder-profile {
+  min-width: 0;
+  margin: 0;
+  padding: 14px 0 16px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.reminder-profile:first-child {
+  padding-top: 4px;
+  border-top: 0;
+}
+
+.reminder-profile legend {
+  width: 100%;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.reminder-profile .switch-row {
+  min-height: 54px;
+  padding: 6px 0 10px;
+  border: 0;
+  background: transparent;
+}
+
+.reminder-profile-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reminder-profile-name > span {
+  display: grid;
+  gap: 2px;
+}
+
+.reminder-profile-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.reminder-profile-icon.expense {
+  color: #a33c3c;
+  background: #fde7e5;
+}
+
+.reminder-profile-icon.task {
+  color: #a25b11;
+  background: #ffefd7;
+}
+
+.reminder-profile-icon.market {
+  color: #67449a;
+  background: #eee6f8;
+}
+
+.reminder-profile-fields {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) minmax(150px, 1.2fr) minmax(112px, 0.8fr) minmax(112px, 0.8fr);
+  gap: 9px;
+}
+
+.reminder-profile-fields > label {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.reminder-profile-fields > label > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.detail-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-left: 6px;
+  color: #2e6f8e;
+  vertical-align: -3px;
+}
+
+.detail-indicator svg {
+  width: 15px;
+  height: 15px;
+}
+
+.shopping-item {
+  cursor: default;
+}
+
+.shopping-item.has-details,
+.task-row.has-details {
+  cursor: pointer;
+}
+
+.shopping-item.has-details:hover,
+.task-row.has-details:hover {
+  border-color: #7baea4;
+}
+
+.product-details-grid section[hidden] {
+  display: none !important;
+}
+
+.task-details-content {
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+  border-left: 4px solid var(--amber);
+  border-radius: 6px;
+  background: #fff8eb;
+}
+
+.task-details-content p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.task-details-content strong {
+  font-size: 0.94rem;
+  font-weight: 750;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+#view-market {
+  gap: 12px;
+}
+
+#view-market .market-filter-row {
+  padding-top: 0;
+  padding-bottom: 10px;
+}
+
+#view-market .market-select-filters .filter-select > span {
+  top: 5px;
+  left: 10px;
+  font-size: 0.72rem;
+}
+
+#view-market .market-select-filters .filter-select select {
+  min-height: 47px;
+  padding: 17px 34px 4px 10px;
+  font-size: 0.98rem;
+}
+
+@media (max-width: 920px) {
+  .reminder-profile-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .view-title-lockup {
+    align-self: flex-start;
+  }
+
+  .view-home-logo {
+    flex-basis: 42px;
+    width: 42px;
+    height: 42px;
+    min-height: 42px;
+  }
+
+  .view-home-logo img {
+    width: 40px;
+    height: 40px;
+  }
+
+  .settings-heading {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .settings-version-bar {
+    width: auto;
+    margin-left: auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+}
+
+@media (max-width: 520px) {
+  #view-market {
+    gap: 8px;
+  }
+
+  #view-market .market-filter-row {
+    padding-block: 2px 8px;
+  }
+
+  #view-market .market-select-filters .filter-select > span {
+    top: 5px;
+    left: 9px;
+    font-size: 0.66rem;
+  }
+
+  #view-market .market-select-filters .filter-select select {
+    min-height: 44px;
+    padding: 16px 28px 3px 9px;
+    font-size: 0.92rem;
+  }
+
+  #view-market .market-clear-button {
+    width: 42px;
+    height: 42px;
+    min-height: 42px;
+  }
+
+  .reminder-profile {
+    padding-block: 12px 14px;
+  }
+
+  .reminder-profile-fields {
+    gap: 8px;
+  }
+
+  .reminder-profile-fields input,
+  .reminder-profile-fields select {
+    min-height: 42px;
+    padding-inline: 9px;
+    font-size: 0.82rem;
+  }
+
+  .reminder-profile-fields .input-suffix small {
+    padding-right: 8px;
+    font-size: 0.66rem;
+  }
+
+  .reminder-actions {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}

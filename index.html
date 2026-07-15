@@ -56,7 +56,10 @@
 
       <section class="view" id="view-finances" aria-labelledby="financesTitle" hidden>
         <div class="view-heading finances-heading">
-          <div>
+          <div class="view-title-lockup">
+            <button class="view-home-logo" type="button" data-view="dashboard" title="Voltar ao Painel" aria-label="Voltar ao Painel">
+              <img src="icon.svg" alt="" aria-hidden="true" />
+            </button>
             <h2 id="financesTitle">Finanças</h2>
           </div>
           <div class="month-switcher finance-month-switcher" aria-label="Mês das finanças">
@@ -125,7 +128,10 @@
 
       <section class="view" id="view-market" aria-labelledby="marketTitle" hidden>
         <div class="view-heading market-heading">
-          <div>
+          <div class="view-title-lockup">
+            <button class="view-home-logo" type="button" data-view="dashboard" title="Voltar ao Painel" aria-label="Voltar ao Painel">
+              <img src="icon.svg" alt="" aria-hidden="true" />
+            </button>
             <h2 id="marketTitle">Lista da Feira</h2>
           </div>
           <div class="market-heading-actions">
@@ -164,7 +170,10 @@
 
       <section class="view" id="view-tasks" aria-labelledby="tasksTitle" hidden>
         <div class="view-heading tasks-heading">
-          <div>
+          <div class="view-title-lockup">
+            <button class="view-home-logo" type="button" data-view="dashboard" title="Voltar ao Painel" aria-label="Voltar ao Painel">
+              <img src="icon.svg" alt="" aria-hidden="true" />
+            </button>
             <h2 id="tasksTitle">Pendências</h2>
           </div>
           <button class="panel-add-btn" type="button" id="addTaskBtn" title="Nova pendência" aria-label="Nova pendência" data-icon="plus"></button>
@@ -304,33 +313,51 @@
               <span class="status-pill" id="reminderStatusPill">Desativados</span>
             </div>
             <form class="settings-form" id="reminderSettingsForm">
-              <label class="switch-row compact-switch">
-                <span>
-                  <strong>Ativar lembretes</strong>
-                  <small>Usar as notificações deste aparelho.</small>
-                </span>
-                <input id="remindersEnabled" type="checkbox" />
-                <i aria-hidden="true"></i>
-              </label>
-              <div class="form-grid two">
-                <label>
-                  <span>A partir de</span>
-                  <div class="input-suffix">
-                    <input id="reminderDaysBefore" type="number" min="0" max="30" step="1" />
-                    <small>dias antes</small>
+              <div class="reminder-profile-list">
+                <fieldset class="reminder-profile">
+                  <legend>Vencimento de contas</legend>
+                  <label class="switch-row compact-switch">
+                    <span class="reminder-profile-name"><b class="reminder-profile-icon expense">$</b><span><strong>Contas</strong><small>Despesas pendentes e vencidas.</small></span></span>
+                    <input id="expenseRemindersEnabled" type="checkbox" />
+                    <i aria-hidden="true"></i>
+                  </label>
+                  <div class="reminder-profile-fields">
+                    <label><span>A partir de</span><div class="input-suffix"><input id="expenseReminderDaysBefore" type="number" min="0" max="30" step="1" /><small>dias antes</small></div></label>
+                    <label><span>Frequência</span><select id="expenseReminderFrequency"><option value="1">A cada 1 hora</option><option value="2">A cada 2 horas</option><option value="3">A cada 3 horas</option><option value="6">A cada 6 horas</option><option value="12">A cada 12 horas</option><option value="24">A cada 24 horas</option></select></label>
+                    <label><span>Das</span><input id="expenseReminderStartTime" type="time" /></label>
+                    <label><span>Até</span><input id="expenseReminderEndTime" type="time" /></label>
                   </div>
-                </label>
-                <label>
-                  <span>Frequência</span>
-                  <select id="reminderFrequencyHours">
-                    <option value="1">A cada 1 hora</option>
-                    <option value="2">A cada 2 horas</option>
-                    <option value="3">A cada 3 horas</option>
-                    <option value="6">A cada 6 horas</option>
-                    <option value="12">A cada 12 horas</option>
-                    <option value="24">A cada 24 horas</option>
-                  </select>
-                </label>
+                </fieldset>
+
+                <fieldset class="reminder-profile">
+                  <legend>Vencimento de pendências</legend>
+                  <label class="switch-row compact-switch">
+                    <span class="reminder-profile-name"><b class="reminder-profile-icon task">⚠</b><span><strong>Pendências</strong><small>Prazos das atividades da casa.</small></span></span>
+                    <input id="taskRemindersEnabled" type="checkbox" />
+                    <i aria-hidden="true"></i>
+                  </label>
+                  <div class="reminder-profile-fields">
+                    <label><span>A partir de</span><div class="input-suffix"><input id="taskReminderDaysBefore" type="number" min="0" max="30" step="1" /><small>dias antes</small></div></label>
+                    <label><span>Frequência</span><select id="taskReminderFrequency"><option value="1">A cada 1 hora</option><option value="2">A cada 2 horas</option><option value="3">A cada 3 horas</option><option value="6">A cada 6 horas</option><option value="12">A cada 12 horas</option><option value="24">A cada 24 horas</option></select></label>
+                    <label><span>Das</span><input id="taskReminderStartTime" type="time" /></label>
+                    <label><span>Até</span><input id="taskReminderEndTime" type="time" /></label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="reminder-profile">
+                  <legend>Prioridade alta na feira</legend>
+                  <label class="switch-row compact-switch">
+                    <span class="reminder-profile-name"><b class="reminder-profile-icon market">🛒</b><span><strong>Feira</strong><small>Produtos marcados como prioridade alta.</small></span></span>
+                    <input id="marketRemindersEnabled" type="checkbox" />
+                    <i aria-hidden="true"></i>
+                  </label>
+                  <div class="reminder-profile-fields">
+                    <label><span>Primeiro aviso</span><select id="marketReminderDelay"><option value="0">Imediatamente</option><option value="1">Após 1 hora</option><option value="3">Após 3 horas</option><option value="6">Após 6 horas</option><option value="12">Após 12 horas</option><option value="24">Após 24 horas</option></select></label>
+                    <label><span>Frequência</span><select id="marketReminderFrequency"><option value="1">A cada 1 hora</option><option value="2">A cada 2 horas</option><option value="3">A cada 3 horas</option><option value="6">A cada 6 horas</option><option value="12">A cada 12 horas</option><option value="24">A cada 24 horas</option></select></label>
+                    <label><span>Das</span><input id="marketReminderStartTime" type="time" /></label>
+                    <label><span>Até</span><input id="marketReminderEndTime" type="time" /></label>
+                  </div>
+                </fieldset>
               </div>
               <div class="action-row reminder-actions">
                 <button class="secondary-btn" type="button" id="notificationPermissionBtn" data-icon="bell">Permitir notificações</button>
@@ -520,18 +547,34 @@
         <button class="icon-btn" type="button" data-close-dialog="productDetailsDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
       </div>
       <div class="product-details-grid">
-        <section>
+        <section id="productDetailsGoodBrandsWrap">
           <span>Marcas boas</span>
           <strong id="productDetailsGoodBrands">Não informado</strong>
         </section>
-        <section>
+        <section id="productDetailsBadBrandsWrap">
           <span>Marcas ruins</span>
           <strong id="productDetailsBadBrands">Não informado</strong>
         </section>
-        <section class="span-2">
+        <section class="span-2" id="productDetailsNotesWrap">
           <span>Observação</span>
           <strong id="productDetailsNotes">Não informado</strong>
         </section>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal compact-modal task-details-dialog" id="taskDetailsDialog">
+    <div class="modal-card">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow">Observação da pendência</p>
+          <h3 id="taskDetailsTitle">Pendência</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="taskDetailsDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+      </div>
+      <div class="task-details-content">
+        <p id="taskDetailsMeta"></p>
+        <strong id="taskDetailsNotes"></strong>
       </div>
     </div>
   </dialog>
@@ -714,8 +757,7 @@
       <div class="brand-lockup center">
         <img class="brand-mark" src="icon.svg" alt="" aria-hidden="true" />
         <div>
-          <p class="eyebrow">Alô Finanças</p>
-          <h3>Entrar</h3>
+          <h3>Alô Finanças</h3>
         </div>
       </div>
       <label>
@@ -734,6 +776,7 @@
   <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
 
   <script src="xlsx.full.min.js" defer></script>
+  <script src="exceljs.min.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

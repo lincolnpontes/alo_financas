@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.13';
+const APP_VERSION = '1.0.14';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -38,6 +38,7 @@ const ICONS = {
   'download-cloud': '<path d="M17.5 19H8a6 6 0 1 1 1.1-11.9A7 7 0 0 1 22 11.5 4.5 4.5 0 0 1 17.5 19Z"></path><path d="M12 11v7"></path><path d="m9 15 3 3 3-3"></path>',
   'edit-3': '<path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path>',
   'hand-coins': '<path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.5.7L3 17"></path><path d="m7 21 1.6-1.6c.4-.4 1-.6 1.5-.6H16c1 0 1.8-.4 2.4-1.1l3.2-4a2 2 0 0 0-3-2.6l-2.9 2.9"></path><path d="M2 16l6 6"></path><circle cx="16" cy="6" r="3"></circle><path d="M16 4.5v3"></path><path d="M14.5 6h3"></path>',
+  info: '<circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path>',
   'key-round': '<path d="M2 18v3h3l8.1-8.1"></path><circle cx="16" cy="8" r="6"></circle><path d="M18 6h.01"></path>',
   'layout-dashboard': '<rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path>',
@@ -168,6 +169,11 @@ function handleDocumentClick(event) {
   }
   const button = event.target.closest('button');
   if (!button) {
+    const taskCard = event.target.closest('.task-row[data-task-id]');
+    if (taskCard) {
+      openTaskDetails(taskCard.dataset.taskId);
+      return;
+    }
     const productCard = event.target.closest('.shopping-item[data-product-id]');
     if (productCard) openProductDetails(productCard.dataset.productId);
     return;
@@ -412,6 +418,7 @@ function navigateToView(view, targetId = '') {
 
 function render() {
   ensureRecurringForMonth();
+  document.body.dataset.activeView = state.view;
   $$('.view').forEach(section => {
     const active = section.id === `view-${state.view}`;
     section.hidden = !active;
@@ -560,6 +567,7 @@ function renderTasks() {
 function taskRow(item) {
   const visualState = taskVisualState(item);
   const priority = taskPriorityLabel(item.priority);
+  const hasDetails = Boolean(String(item.notes || '').trim());
   const subtitle = `Prazo ${dateOrDash(item.dueDate)} · ${item.owner || 'Todos'}`;
   const statusText = item.status === 'completed'
     ? 'Concluída'
@@ -567,13 +575,12 @@ function taskRow(item) {
       ? 'Em execução'
       : visualState === 'overdue' ? 'Atrasada' : 'Pendente';
   return `
-    <div class="task-row task-${escapeAttr(visualState)}">
+    <div class="task-row task-${escapeAttr(visualState)} ${hasDetails ? 'has-details' : ''}" data-task-id="${escapeAttr(item.id)}">
       <button class="task-marker" type="button" data-task-actions data-id="${escapeAttr(item.id)}" title="Ações da pendência" aria-label="Abrir ações de ${escapeAttr(item.title)}">📌</button>
       <div class="data-main">
-        <strong>${escapeHTML(item.title)}</strong>
+        <strong>${escapeHTML(item.title)}${hasDetails ? `<span class="detail-indicator" title="Possui observação" aria-label="Possui observação">${iconSvg('info')}</span>` : ''}</strong>
         <small>${escapeHTML(subtitle)}</small>
         <small class="task-priority">Prioridade - ${escapeHTML(priority)}</small>
-        ${item.notes ? `<small class="task-note">${escapeHTML(item.notes)}</small>` : ''}
       </div>
       <span class="badge ${escapeAttr(visualState)}">${escapeHTML(statusText)}</span>
     </div>
@@ -593,6 +600,15 @@ function priorityRank(priority) {
 
 function taskPriorityLabel(priority) {
   return ({ low: 'Baixa', normal: 'Normal', high: 'Alta' })[priority] || 'Normal';
+}
+
+function openTaskDetails(taskId) {
+  const item = db.tasks.find(entry => entry.id === taskId && !entry.deletedAt);
+  if (!item || !String(item.notes || '').trim()) return;
+  $('#taskDetailsTitle').textContent = item.title;
+  $('#taskDetailsMeta').textContent = `Prazo ${dateOrDash(item.dueDate)} · ${item.owner || 'Todos'} · Prioridade ${taskPriorityLabel(item.priority)}`;
+  $('#taskDetailsNotes').textContent = item.notes;
+  $('#taskDetailsDialog').showModal();
 }
 
 function renderMarket() {
@@ -662,14 +678,43 @@ function renderSettings() {
 
 function renderReminderSettings() {
   const reminders = db.settings.reminders;
-  $('#remindersEnabled').checked = reminders.enabled === true;
-  $('#reminderDaysBefore').value = String(reminders.daysBefore ?? 2);
-  $('#reminderFrequencyHours').value = String(reminders.frequencyHours || 6);
+  const fieldMap = {
+    expenses: {
+      enabled: 'expenseRemindersEnabled',
+      daysBefore: 'expenseReminderDaysBefore',
+      frequencyHours: 'expenseReminderFrequency',
+      startTime: 'expenseReminderStartTime',
+      endTime: 'expenseReminderEndTime'
+    },
+    tasks: {
+      enabled: 'taskRemindersEnabled',
+      daysBefore: 'taskReminderDaysBefore',
+      frequencyHours: 'taskReminderFrequency',
+      startTime: 'taskReminderStartTime',
+      endTime: 'taskReminderEndTime'
+    },
+    market: {
+      enabled: 'marketRemindersEnabled',
+      delayHours: 'marketReminderDelay',
+      frequencyHours: 'marketReminderFrequency',
+      startTime: 'marketReminderStartTime',
+      endTime: 'marketReminderEndTime'
+    }
+  };
+  Object.entries(fieldMap).forEach(([type, fields]) => {
+    const profile = reminders[type];
+    Object.entries(fields).forEach(([property, id]) => {
+      const input = $(`#${id}`);
+      if (property === 'enabled') input.checked = profile.enabled === true;
+      else input.value = String(profile[property] ?? '');
+    });
+  });
   const supported = 'Notification' in window;
   const permission = supported ? Notification.permission : 'unsupported';
-  const active = reminders.enabled && permission === 'granted';
+  const enabledCount = ['expenses', 'tasks', 'market'].filter(type => reminders[type]?.enabled).length;
+  const active = enabledCount > 0 && permission === 'granted';
   const pill = $('#reminderStatusPill');
-  pill.textContent = active ? 'Ativos' : reminders.enabled ? 'Sem permissão' : 'Desativados';
+  pill.textContent = active ? `${enabledCount} ${enabledCount === 1 ? 'ativo' : 'ativos'}` : enabledCount ? 'Sem permissão' : 'Desativados';
   pill.className = `status-pill${active ? ' good' : ''}`;
   const permissionButton = $('#notificationPermissionBtn');
   permissionButton.disabled = !supported || permission === 'denied';
@@ -678,21 +723,35 @@ function renderReminderSettings() {
 
 function saveReminderSettings(event) {
   event.preventDefault();
-  db.settings.reminders.enabled = $('#remindersEnabled').checked;
-  db.settings.reminders.daysBefore = Math.max(0, Math.min(30, Number($('#reminderDaysBefore').value || 0)));
-  db.settings.reminders.frequencyHours = Math.max(1, Number($('#reminderFrequencyHours').value || 6));
-  addAudit('alterou', 'os lembretes', db.settings.reminders.enabled ? 'Ativados' : 'Desativados');
+  db.settings.reminders = {
+    expenses: readReminderProfile('expense', { daysBefore: true }),
+    tasks: readReminderProfile('task', { daysBefore: true }),
+    market: readReminderProfile('market', { delayHours: true })
+  };
+  const enabledCount = Object.values(db.settings.reminders).filter(profile => profile.enabled).length;
+  addAudit('alterou', 'os lembretes', enabledCount ? `${enabledCount} configurado(s)` : 'Desativados');
   saveData();
   checkDueNotifications();
   toast('Lembretes atualizados.', 'good');
+}
+
+function readReminderProfile(prefix, options = {}) {
+  const profile = {
+    enabled: $(`#${prefix}RemindersEnabled`).checked,
+    frequencyHours: Math.max(1, Number($(`#${prefix}ReminderFrequency`).value || 6)),
+    startTime: normalizeReminderTime($(`#${prefix}ReminderStartTime`).value, '08:00'),
+    endTime: normalizeReminderTime($(`#${prefix}ReminderEndTime`).value, '21:00')
+  };
+  if (options.daysBefore) profile.daysBefore = Math.max(0, Math.min(30, Number($(`#${prefix}ReminderDaysBefore`).value || 0)));
+  if (options.delayHours) profile.delayHours = Math.max(0, Number($(`#${prefix}ReminderDelay`).value || 0));
+  return profile;
 }
 
 async function requestNotificationPermission() {
   if (!('Notification' in window)) return toast('Este navegador não oferece notificações.', 'error');
   const permission = await Notification.requestPermission();
   if (permission === 'granted') {
-    db.settings.reminders.enabled = true;
-    saveData();
+    renderReminderSettings();
     checkDueNotifications();
     toast('Notificações permitidas.', 'good');
   } else {
@@ -703,36 +762,48 @@ async function requestNotificationPermission() {
 
 async function checkDueNotifications() {
   const reminders = db.settings.reminders;
-  if (!reminders?.enabled || !('Notification' in window) || Notification.permission !== 'granted' || document.body.classList.contains('app-locked')) return;
+  if (!reminders || !('Notification' in window) || Notification.permission !== 'granted' || document.body.classList.contains('app-locked')) return;
   const now = Date.now();
-  const daysBeforeMs = Number(reminders.daysBefore || 0) * 24 * 60 * 60 * 1000;
-  const frequencyMs = Number(reminders.frequencyHours || 6) * 60 * 60 * 1000;
   const candidates = [];
+  const expenseProfile = reminders.expenses;
+  const taskProfile = reminders.tasks;
+  const marketProfile = reminders.market;
 
-  visible(db.finances.expenses)
-    .filter(item => item.status !== 'paid' && !isCardExpense(item))
-    .forEach(item => {
-      const dueAt = expenseDueTimestamp(item);
-      if (dueAt && now >= dueAt - daysBeforeMs) {
-        candidates.push({ key: `expense:${item.id}`, title: 'Conta próxima do vencimento', body: `${item.title} - ${formatMoney(item.amount)} - dia ${String(item.dueDay || 1).padStart(2, '0')}`, view: 'finances' });
-      }
-    });
+  if (reminderProfileIsActive(expenseProfile)) {
+    const daysBeforeMs = Number(expenseProfile.daysBefore || 0) * 24 * 60 * 60 * 1000;
+    visible(db.finances.expenses)
+      .filter(item => item.status !== 'paid' && !isCardExpense(item))
+      .forEach(item => {
+        const dueAt = expenseDueTimestamp(item);
+        if (dueAt && now >= dueAt - daysBeforeMs) {
+          candidates.push({ key: `expense:${item.id}`, title: 'Conta próxima do vencimento', body: `${item.title} - ${formatMoney(item.amount)} - dia ${String(item.dueDay || 1).padStart(2, '0')}`, view: 'finances', frequencyHours: expenseProfile.frequencyHours });
+        }
+      });
+  }
 
-  visible(db.tasks)
-    .filter(item => item.status !== 'completed')
-    .forEach(item => {
-      const dueAt = taskDueTimestamp(item);
-      if (dueAt && now >= dueAt - daysBeforeMs) {
-        candidates.push({ key: `task:${item.id}`, title: 'Pendência próxima do prazo', body: `${item.title} - ${item.owner || 'Todos'} - ${dateOrDash(item.dueDate)}`, view: 'tasks' });
-      }
-    });
+  if (reminderProfileIsActive(taskProfile)) {
+    const daysBeforeMs = Number(taskProfile.daysBefore || 0) * 24 * 60 * 60 * 1000;
+    visible(db.tasks)
+      .filter(item => item.status !== 'completed')
+      .forEach(item => {
+        const dueAt = taskDueTimestamp(item);
+        if (dueAt && now >= dueAt - daysBeforeMs) {
+          candidates.push({ key: `task:${item.id}`, title: 'Pendência próxima do prazo', body: `${item.title} - ${item.owner || 'Todos'} - ${dateOrDash(item.dueDate)}`, view: 'tasks', frequencyHours: taskProfile.frequencyHours });
+        }
+      });
+  }
 
-  visible(db.pantry.list)
-    .filter(item => item.status !== 'bought' && item.priority === 'high')
-    .forEach(item => candidates.push({ key: `market:${item.id}`, title: 'Prioridade alta na feira', body: `${item.name} - ${formatQuantity(item.qty || 1)} ${item.unit || 'un'}`, view: 'market' }));
+  if (reminderProfileIsActive(marketProfile)) {
+    const delayMs = Number(marketProfile.delayHours || 0) * 60 * 60 * 1000;
+    visible(db.pantry.list)
+      .filter(item => item.status !== 'bought' && item.priority === 'high')
+      .filter(item => now >= Number(item.priorityAt || item.updatedAt || item.createdAt || 0) + delayMs)
+      .forEach(item => candidates.push({ key: `market:${item.id}`, title: 'Prioridade alta na feira', body: `${item.name} - ${formatQuantity(item.qty || 1)} ${item.unit || 'un'}`, view: 'market', frequencyHours: marketProfile.frequencyHours }));
+  }
 
   for (const candidate of candidates) {
     const lastSent = Number(reminderState.lastSent?.[candidate.key] || 0);
+    const frequencyMs = Number(candidate.frequencyHours || 6) * 60 * 60 * 1000;
     if (now - lastSent < frequencyMs) continue;
     const sent = await showAppNotification(candidate);
     if (sent) {
@@ -740,6 +811,28 @@ async function checkDueNotifications() {
       localStorage.setItem(REMINDER_META_KEY, JSON.stringify(reminderState));
     }
   }
+}
+
+function reminderProfileIsActive(profile) {
+  return Boolean(profile?.enabled && isWithinReminderWindow(profile.startTime, profile.endTime));
+}
+
+function isWithinReminderWindow(startTime, endTime, date = new Date()) {
+  const current = date.getHours() * 60 + date.getMinutes();
+  const start = reminderTimeToMinutes(startTime, 8 * 60);
+  const end = reminderTimeToMinutes(endTime, 21 * 60);
+  if (start === end) return true;
+  return start < end ? current >= start && current <= end : current >= start || current <= end;
+}
+
+function reminderTimeToMinutes(value, fallback) {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(value || ''));
+  if (!match) return fallback;
+  return Math.min(23, Number(match[1])) * 60 + Math.min(59, Number(match[2]));
+}
+
+function normalizeReminderTime(value, fallback) {
+  return /^(\d{2}):(\d{2})$/.test(String(value || '')) ? String(value) : fallback;
 }
 
 async function showAppNotification(notification) {
@@ -1008,6 +1101,7 @@ function shoppingRow(entry) {
   const bought = status === 'bought';
   const completionLabel = ordered || (bought && item?.completionType === 'received') ? 'Recebido' : 'Comprado';
   const highPriority = item?.priority === 'high';
+  const hasDetails = productHasDetails(product);
   const draftQty = Number(state.marketDraftQty[product.id] ?? product.defaultQty ?? 1);
   const qty = item?.qty || draftQty;
   const unit = item?.unit || state.marketDraftUnit[product.id] || product.unit || 'un';
@@ -1024,10 +1118,10 @@ function shoppingRow(entry) {
         <button class="quantity-tick" type="button" data-mark-product-needed="${escapeAttr(product.id)}" title="Quero comprar este item" aria-label="Marcar ${escapeAttr(product.name)} como pendente">${iconSvg('check')}</button>
       </div>`;
   return `
-    <article class="shopping-item status-${escapeAttr(status)} ${item ? 'has-request' : 'has-draft'} ${highPriority ? 'is-high-priority' : ''}" data-product-id="${escapeAttr(product.id)}">
+    <article class="shopping-item status-${escapeAttr(status)} ${item ? 'has-request' : 'has-draft'} ${highPriority ? 'is-high-priority' : ''} ${hasDetails ? 'has-details' : ''}" data-product-id="${escapeAttr(product.id)}">
       <button class="product-emoji" type="button" data-product-actions data-id="${escapeAttr(product.id)}" data-list-id="${escapeAttr(item?.id || '')}" title="Ações de ${escapeAttr(product.name)}" aria-label="Abrir ações de ${escapeAttr(product.name)}">${productEmoji(product)}</button>
       <div class="data-main">
-        <strong>${highPriority ? '<span class="priority-star" aria-label="Prioridade alta">★</span> ' : ''}${escapeHTML(product.name)}</strong>
+        <strong>${highPriority ? '<span class="priority-star" aria-label="Prioridade alta">★</span> ' : ''}${escapeHTML(product.name)}${hasDetails ? `<span class="detail-indicator" title="Possui indicações" aria-label="Possui indicações">${iconSvg('info')}</span>` : ''}</strong>
         <small>${escapeHTML(product.category || 'Mercado')}</small>
       </div>
       ${controls}
@@ -1057,6 +1151,10 @@ function productHints(product) {
   if (product.goodBrands) parts.push(`Boas: ${product.goodBrands}`);
   if (product.badBrands) parts.push(`Evitar: ${product.badBrands}`);
   return escapeHTML(parts.join(' | '));
+}
+
+function productHasDetails(product) {
+  return Boolean(String(product?.goodBrands || '').trim() || String(product?.badBrands || '').trim() || String(product?.notes || '').trim());
 }
 
 function productEmoji(product) {
@@ -1399,30 +1497,82 @@ function saveProductFromForm(event) {
 
 function openProductDetails(productId) {
   const product = db.pantry.products.find(item => item.id === productId && !item.deletedAt);
-  if (!product) return;
+  if (!product || !productHasDetails(product)) return;
   $('#productDetailsTitle').textContent = product.name;
   $('#productDetailsCategory').textContent = `${categoryEmoji(product.category)} ${product.category || 'Mercado'}`;
-  $('#productDetailsGoodBrands').textContent = product.goodBrands || 'Não informado';
-  $('#productDetailsBadBrands').textContent = product.badBrands || 'Não informado';
-  $('#productDetailsNotes').textContent = product.notes || 'Não informado';
+  const detailFields = [
+    { wrap: $('#productDetailsGoodBrandsWrap'), value: product.goodBrands, full: false },
+    { wrap: $('#productDetailsBadBrandsWrap'), value: product.badBrands, full: false },
+    { wrap: $('#productDetailsNotesWrap'), value: product.notes, full: true }
+  ];
+  const visibleCount = detailFields.filter(field => String(field.value || '').trim()).length;
+  detailFields.forEach(field => {
+    field.wrap.hidden = !String(field.value || '').trim();
+    field.wrap.classList.toggle('span-2', field.full || visibleCount === 1);
+  });
+  $('#productDetailsGoodBrands').textContent = product.goodBrands || '';
+  $('#productDetailsBadBrands').textContent = product.badBrands || '';
+  $('#productDetailsNotes').textContent = product.notes || '';
   $('#productDetailsDialog').showModal();
 }
 
-function exportProductsXlsx() {
-  if (!window.XLSX) return toast('Não foi possível carregar o recurso de planilhas.', 'error');
+async function exportProductsXlsx() {
+  if (!window.ExcelJS) return toast('Não foi possível carregar o recurso de planilhas.', 'error');
   const rows = visible(db.pantry.products)
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map(product => ({
-      Nome: product.name,
-      Categoria: product.category || 'Mercado',
-      'Qtd. padrão': Number(product.defaultQty || 1),
-      'Unidades de compra': product.units || product.unit || 'un'
-    }));
-  const worksheet = XLSX.utils.json_to_sheet(rows, { header: ['Nome', 'Categoria', 'Qtd. padrão', 'Unidades de compra'] });
-  worksheet['!cols'] = [{ wch: 30 }, { wch: 22 }, { wch: 14 }, { wch: 28 }];
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos');
-  XLSX.writeFile(workbook, `produtos_feira_${dateStamp()}.xlsx`);
+    .map(product => [
+      product.name,
+      product.category || 'Mercado',
+      Number(product.defaultQty || 1),
+      product.units || product.unit || 'un'
+    ]);
+  const categories = marketCategories();
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Alô Finanças';
+  workbook.created = new Date();
+  const worksheet = workbook.addWorksheet('Produtos', { views: [{ state: 'frozen', ySplit: 1 }] });
+  worksheet.addTable({
+    name: 'ProdutosFeira',
+    ref: 'A1',
+    headerRow: true,
+    style: { theme: 'TableStyleMedium4', showRowStripes: true },
+    columns: [
+      { name: 'Nome', filterButton: true },
+      { name: 'Categoria', filterButton: true },
+      { name: 'Qtd. padrão', filterButton: true },
+      { name: 'Unidades de compra', filterButton: true }
+    ],
+    rows
+  });
+  worksheet.columns = [{ width: 30 }, { width: 22 }, { width: 14 }, { width: 28 }];
+  worksheet.getRow(1).height = 24;
+  worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+  worksheet.getColumn(3).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  const categorySheet = workbook.addWorksheet('Categorias');
+  const availableCategories = categories.length ? categories : ['Mercado'];
+  availableCategories.forEach((category, index) => {
+    categorySheet.getCell(index + 1, 1).value = category;
+  });
+  categorySheet.state = 'veryHidden';
+  for (let row = 2; row <= Math.max(rows.length + 20, 200); row += 1) {
+    worksheet.getCell(row, 2).dataValidation = {
+      type: 'list',
+      allowBlank: false,
+      formulae: [`'Categorias'!$A$1:$A$${availableCategories.length}`],
+      showErrorMessage: true,
+      errorTitle: 'Categoria inválida',
+      error: 'Escolha uma categoria cadastrada no Alô Finanças.'
+    };
+  }
+
+  try {
+    const buffer = await workbook.xlsx.writeBuffer();
+    downloadBlob(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `produtos_feira_${dateStamp()}.xlsx`);
+  } catch (error) {
+    toast('Não foi possível gerar a planilha.', 'error');
+  }
 }
 
 async function importProductsXlsx(event) {
@@ -1845,6 +1995,7 @@ function runQuickPriorityAction() {
   if (!item) return;
   const highPriority = item.priority === 'high';
   item.priority = highPriority ? 'normal' : 'high';
+  item.priorityAt = highPriority ? 0 : Date.now();
   item.updatedAt = Date.now();
   addAudit(highPriority ? 'removeu a prioridade de' : 'marcou como prioridade alta', 'o item da feira', item.name);
   closeQuickActionsMenu();
@@ -2278,6 +2429,32 @@ function loadStoredDB() {
   return readJSON(localStorage.getItem(STORAGE_KEY), defaultDB());
 }
 
+function defaultReminderSettings() {
+  return {
+    expenses: { enabled: false, daysBefore: 2, frequencyHours: 6, startTime: '08:00', endTime: '21:00' },
+    tasks: { enabled: false, daysBefore: 2, frequencyHours: 6, startTime: '08:00', endTime: '21:00' },
+    market: { enabled: false, delayHours: 0, frequencyHours: 6, startTime: '08:00', endTime: '21:00' }
+  };
+}
+
+function normalizeReminderSettings(input) {
+  const defaults = defaultReminderSettings();
+  const source = input && typeof input === 'object' ? input : {};
+  const legacy = Object.prototype.hasOwnProperty.call(source, 'enabled');
+  const legacyProfile = {
+    enabled: source.enabled === true,
+    daysBefore: Math.max(0, Math.min(30, Number(source.daysBefore ?? 2))),
+    frequencyHours: Math.max(1, Number(source.frequencyHours || 6)),
+    startTime: '08:00',
+    endTime: '21:00'
+  };
+  return {
+    expenses: { ...defaults.expenses, ...(legacy ? legacyProfile : source.expenses || {}) },
+    tasks: { ...defaults.tasks, ...(legacy ? legacyProfile : source.tasks || {}) },
+    market: { ...defaults.market, ...(legacy ? { ...legacyProfile, delayHours: 0 } : source.market || {}) }
+  };
+}
+
 function defaultDB() {
   const now = Date.now();
   const categoryMeta = DEFAULT_MARKET_CATEGORIES.map((name, index) => ({
@@ -2320,11 +2497,7 @@ function defaultDB() {
     settings: {
       householdName: 'Nossa casa',
       members: OWNERS,
-      reminders: {
-        enabled: false,
-        daysBefore: 2,
-        frequencyHours: 6
-      }
+      reminders: defaultReminderSettings()
     },
     finances: {
       expenses: [],
@@ -2359,7 +2532,7 @@ function normalizeDB(input) {
     pantry: { ...base.pantry, ...(data.pantry || {}) }
   };
   normalized.appId = APP_ID;
-  normalized.settings.reminders = { ...base.settings.reminders, ...(data.settings?.reminders || {}) };
+  normalized.settings.reminders = normalizeReminderSettings(data.settings?.reminders);
   normalized.schemaVersion = 1;
   ['expenses', 'incomes', 'accounts', 'receivables', 'debts', 'recurring'].forEach(key => {
     normalized.finances[key] = Array.isArray(normalized.finances[key]) ? normalized.finances[key].map(normalizeItem) : [];
@@ -3061,6 +3234,10 @@ function handleImportFile(event) {
 
 function downloadJSON(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, filename);
+}
+
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

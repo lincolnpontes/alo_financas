@@ -1,10 +1,11 @@
-const CACHE_NAME = 'alo-financas-v1.0.13';
+const CACHE_NAME = 'alo-financas-v1.0.14';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './xlsx.full.min.js',
+  './exceljs.min.js',
   './manifest.json',
   './icon.svg'
 ];
