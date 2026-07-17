@@ -515,6 +515,58 @@
     </form>
   </dialog>
 
+  <dialog class="modal flow-dialog" id="flowDialog">
+    <div class="modal-card">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow" id="flowDialogEyebrow">A receber</p>
+          <h3 id="flowDialogTitle">Histórico</h3>
+        </div>
+        <div class="modal-title-actions">
+          <button class="icon-btn" type="button" id="flowEditRecordBtn" aria-label="Editar registro" title="Editar registro" data-icon="edit-3"></button>
+          <button class="icon-btn" type="button" data-close-dialog="flowDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+        </div>
+      </div>
+      <input type="hidden" id="flowRecordType" />
+      <input type="hidden" id="flowRecordId" />
+
+      <div class="flow-balance-summary">
+        <div>
+          <span>Valor total</span>
+          <strong id="flowTotalAmount">R$ 0,00</strong>
+        </div>
+        <div>
+          <span id="flowSettledLabel">Recebido</span>
+          <strong id="flowSettledAmount">R$ 0,00</strong>
+        </div>
+        <div class="flow-remaining">
+          <span>Restante</span>
+          <strong id="flowRemainingAmount">R$ 0,00</strong>
+        </div>
+      </div>
+
+      <form class="flow-entry-form" id="flowEntryForm">
+        <label>
+          <span id="flowEntryAmountLabel">Valor recebido</span>
+          <input id="flowEntryAmount" inputmode="decimal" required placeholder="0,00" />
+        </label>
+        <label>
+          <span id="flowEntryDateLabel">Data do recebimento</span>
+          <input id="flowEntryDate" type="date" required />
+        </label>
+        <button class="primary-btn" type="submit" id="flowEntrySubmitBtn" data-icon="plus">Adicionar</button>
+      </form>
+
+      <section class="flow-history-section">
+        <div class="flow-history-heading">
+          <h4>Histórico</h4>
+          <span class="status-pill" id="flowHistoryCount">0</span>
+        </div>
+        <div class="flow-history-list" id="flowHistoryList"></div>
+      </section>
+    </div>
+  </dialog>
+
   <dialog class="modal" id="productDialog">
     <form method="dialog" class="modal-card" id="productForm">
       <div class="modal-title">

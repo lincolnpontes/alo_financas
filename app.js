@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.15';
+const APP_VERSION = '1.0.16';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -148,6 +148,7 @@ function bindEvents() {
     if (syncState.user) (syncState.meta.localDirty ? pushRemoteData(false, false) : checkRemoteRevision()).catch(() => {});
   });
   $('#recordForm').addEventListener('submit', saveRecordFromForm);
+  $('#flowEntryForm').addEventListener('submit', saveFlowEntryFromForm);
   $('#taskForm').addEventListener('submit', saveTaskFromForm);
   $('#productForm').addEventListener('submit', saveProductFromForm);
   $('#orderForm').addEventListener('submit', saveOrderFromForm);
@@ -170,6 +171,11 @@ function handleDocumentClick(event) {
   }
   const button = event.target.closest('button');
   if (!button) {
+    const flowRow = event.target.closest('.finance-row[data-flow-type][data-flow-id]');
+    if (flowRow) {
+      openFlowDialog(flowRow.dataset.flowType, flowRow.dataset.flowId);
+      return;
+    }
     const taskCard = event.target.closest('.task-row[data-task-id]');
     if (taskCard) {
       openTaskDetails(taskCard.dataset.taskId);
@@ -252,6 +258,12 @@ function handleDocumentClick(event) {
     return;
   }
 
+  const deleteFlowEntry = button.closest('[data-delete-flow-entry]');
+  if (deleteFlowEntry) {
+    deleteFlowEntryById(deleteFlowEntry.dataset.deleteFlowEntry);
+    return;
+  }
+
   const moveCategory = button.closest('[data-move-category]');
   if (moveCategory) {
     moveMarketCategory(moveCategory.dataset.moveCategory, Number(moveCategory.dataset.direction));
@@ -323,6 +335,7 @@ function handleDocumentClick(event) {
   if (button.id === 'prevMonthBtn') shiftMonth(-1);
   if (button.id === 'nextMonthBtn') shiftMonth(1);
   if (button.id === 'deleteRecordBtn') deleteCurrentRecord();
+  if (button.id === 'flowEditRecordBtn') editCurrentFlowRecord();
   if (button.id === 'addTaskBtn') openTaskDialog();
   if (button.id === 'deleteTaskBtn') deleteCurrentTask();
   if (button.id === 'deleteProductBtn') deleteCurrentProduct();
@@ -1013,18 +1026,21 @@ function stackRow(title, subtitle, right, icon, tone = '') {
 
 function financeRow(type, item) {
   const config = rowConfig(type, item);
+  const isFlow = type === 'receivable' || type === 'debt';
   const expenseState = type === 'expense' ? expenseVisualState(item) : '';
-  const badge = type === 'expense'
+  const badge = isFlow
+    ? flowStatusBadge(type, item)
+    : type === 'expense'
     ? `<span class="badge ${expenseState}">${expenseState === 'paid' ? 'Pago' : expenseState === 'overdue' ? 'Vencida' : 'Pendente'}</span>`
     : statusBadge(type, item.status);
-  const amount = type === 'account' ? item.balance : item.amount;
+  const amount = type === 'account' ? item.balance : isFlow ? remainingFlowAmount(type, item) : item.amount;
   const amountDisplay = amount == null ? 'Definir valor' : formatMoney(amount);
   const subtitle = config.subtitle;
   const actionTone = type === 'expense' ? expenseState : config.tone;
   const leadingIcon = `<button class="row-icon finance-action-trigger ${escapeAttr(actionTone)}" type="button" data-record-actions data-record-type="${escapeAttr(type)}" data-id="${escapeAttr(item.id)}" title="Ações" aria-label="Abrir ações de ${escapeAttr(config.title)}">${iconSvg(config.icon)}</button>`;
 
   return `
-    <div class="data-row finance-row ${escapeAttr(type)}-row ${type === 'expense' ? `expense-${expenseState}` : ''}">
+    <div class="data-row finance-row ${escapeAttr(type)}-row ${type === 'expense' ? `expense-${expenseState}` : ''} ${isFlow ? 'has-flow-details' : ''}" ${isFlow ? `data-flow-type="${escapeAttr(type)}" data-flow-id="${escapeAttr(item.id)}" title="Abrir movimentações"` : ''}>
       ${leadingIcon}
       <div class="data-main">
         <strong>${escapeHTML(config.title)}</strong>
@@ -1036,6 +1052,33 @@ function financeRow(type, item) {
       </div>
     </div>
   `;
+}
+
+function flowEntries(type, recordId, database = db, includeDeleted = false) {
+  const entries = Array.isArray(database.finances?.settlements) ? database.finances.settlements : [];
+  return entries.filter(entry => entry.recordType === type && entry.recordId === recordId && (includeDeleted || !entry.deletedAt));
+}
+
+function settledFlowAmount(type, item, database = db) {
+  return roundMoney(flowEntries(type, item.id, database).reduce((total, entry) => total + Number(entry.amount || 0), 0));
+}
+
+function remainingFlowAmount(type, item, database = db) {
+  return Math.max(0, roundMoney(Number(item.amount || 0) - settledFlowAmount(type, item, database)));
+}
+
+function roundMoney(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function flowStatusBadge(type, item) {
+  const settled = settledFlowAmount(type, item);
+  const remaining = remainingFlowAmount(type, item);
+  if (remaining <= 0 && Number(item.amount || 0) > 0) {
+    return `<span class="badge ${type === 'receivable' ? 'received' : 'paid'}">${type === 'receivable' ? 'Recebido' : 'Pago'}</span>`;
+  }
+  if (settled > 0) return '<span class="badge partial">Parcial</span>';
+  return '<span class="badge open">Aberto</span>';
 }
 
 function rowConfig(type, item) {
@@ -1214,8 +1257,8 @@ function calculateTotals(month = state.month) {
   const incomeReceived = sum(incomes.filter(item => item.status === 'received'), 'amount');
   const incomeOpen = sum(incomes.filter(item => item.status !== 'received'), 'amount');
   const accountTotal = sum(accounts, 'balance');
-  const receivableOpen = sum(receivables.filter(item => item.status !== 'received'), 'amount');
-  const debtOpen = sum(debts.filter(item => item.status !== 'paid'), 'amount');
+  const receivableOpen = roundMoney(receivables.reduce((total, item) => total + remainingFlowAmount('receivable', item), 0));
+  const debtOpen = roundMoney(debts.reduce((total, item) => total + remainingFlowAmount('debt', item), 0));
 
   return {
     expenseTotal,
@@ -1299,6 +1342,8 @@ function saveRecordFromForm(event) {
     item.type = $('#recordCategory').value;
     if (!item.name) return toast('Informe o nome da conta.', 'error');
   } else if (type === 'receivable' || type === 'debt') {
+    const alreadySettled = existing ? settledFlowAmount(type, existing) : 0;
+    if (amount + 0.005 < alreadySettled) return toast(`O valor total não pode ser menor que ${formatMoney(alreadySettled)}, que já foi movimentado.`, 'error');
     item.person = $('#recordName').value.trim();
     item.title = $('#recordCategory').value;
     item.amount = amount;
@@ -1338,6 +1383,7 @@ function saveRecordFromForm(event) {
     }
   }
 
+  if (type === 'receivable' || type === 'debt') updateFlowRecordStatus(type, item);
   if (!existing) collection.push(item);
   addAudit(isNew ? 'cadastrou' : 'alterou', recordEntityLabel(type), recordDisplayName(type, item));
   saveData();
@@ -1352,10 +1398,126 @@ function deleteCurrentRecord() {
   if (!confirm('Excluir este registro?')) return;
   const item = getCollection(type).find(entry => entry.id === id);
   markDeleted(getCollection(type), id);
+  if (type === 'receivable' || type === 'debt') {
+    flowEntries(type, id).forEach(entry => markDeleted(db.finances.settlements, entry.id));
+  }
   addAudit('excluiu', recordEntityLabel(type), recordDisplayName(type, item));
   saveData();
   closeDialog('recordDialog');
   toast('Registro excluído.', 'good');
+}
+
+function openFlowDialog(type, id) {
+  if (!['receivable', 'debt'].includes(type)) return;
+  const item = getCollection(type).find(entry => entry.id === id && !entry.deletedAt);
+  if (!item) return;
+  $('#flowRecordType').value = type;
+  $('#flowRecordId').value = id;
+  $('#flowDialogEyebrow').textContent = type === 'receivable' ? 'A receber' : 'Devemos';
+  $('#flowDialogTitle').textContent = item.person || item.title || (type === 'receivable' ? 'Valor a receber' : 'Dívida');
+  $('#flowSettledLabel').textContent = type === 'receivable' ? 'Recebido' : 'Pago';
+  $('#flowEntryAmountLabel').textContent = type === 'receivable' ? 'Valor recebido' : 'Valor pago';
+  $('#flowEntryDateLabel').textContent = type === 'receivable' ? 'Data do recebimento' : 'Data do pagamento';
+  $('#flowEntryDate').value = dateStamp();
+  $('#flowEntryAmount').value = '';
+  renderFlowDialog();
+  $('#flowDialog').showModal();
+  setTimeout(() => $('#flowEntryAmount').focus(), 0);
+}
+
+function renderFlowDialog() {
+  const type = $('#flowRecordType').value;
+  const id = $('#flowRecordId').value;
+  const item = getCollection(type)?.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item) return;
+  const entries = flowEntries(type, id)
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(b.createdAt || 0) - Number(a.createdAt || 0));
+  const total = Number(item.amount || 0);
+  const settled = settledFlowAmount(type, item);
+  const remaining = remainingFlowAmount(type, item);
+  const actionLabel = type === 'receivable' ? 'Recebido' : 'Pago';
+
+  $('#flowTotalAmount').textContent = formatMoney(total);
+  $('#flowSettledAmount').textContent = formatMoney(settled);
+  $('#flowRemainingAmount').textContent = formatMoney(remaining);
+  $('#flowHistoryCount').textContent = String(entries.length);
+  $('#flowEntryAmount').disabled = remaining <= 0;
+  $('#flowEntryDate').disabled = remaining <= 0;
+  $('#flowEntrySubmitBtn').disabled = remaining <= 0;
+
+  $('#flowHistoryList').innerHTML = entries.length
+    ? entries.map(entry => `
+      <div class="flow-history-row ${escapeAttr(type)}">
+        <span class="flow-history-icon">${iconSvg(type === 'receivable' ? 'download' : 'upload')}</span>
+        <div class="data-main">
+          <strong>${escapeHTML(actionLabel)}</strong>
+          <small>${escapeHTML(dateOrDash(entry.date))}${entry.legacy ? ' · registro anterior' : ''}</small>
+        </div>
+        <strong class="flow-history-amount">${type === 'receivable' ? '+' : '-'} ${escapeHTML(formatMoney(entry.amount))}</strong>
+        <button class="icon-btn flow-delete-entry" type="button" data-delete-flow-entry="${escapeAttr(entry.id)}" title="Excluir lançamento" aria-label="Excluir lançamento">${iconSvg('trash-2')}</button>
+      </div>
+    `).join('')
+    : emptyState(type === 'receivable' ? 'Nenhum recebimento registrado.' : 'Nenhum pagamento registrado.');
+}
+
+function saveFlowEntryFromForm(event) {
+  event.preventDefault();
+  const type = $('#flowRecordType').value;
+  const id = $('#flowRecordId').value;
+  const item = getCollection(type)?.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item) return;
+  const amount = parseMoney($('#flowEntryAmount').value);
+  const date = $('#flowEntryDate').value;
+  const remaining = remainingFlowAmount(type, item);
+  if (!(amount > 0)) return toast('Informe um valor maior que zero.', 'error');
+  if (!date) return toast('Informe a data.', 'error');
+  if (amount > remaining + 0.005) return toast(`O valor máximo é ${formatMoney(remaining)}.`, 'error');
+
+  const now = Date.now();
+  db.finances.settlements.push({
+    id: uid('settlement'),
+    recordType: type,
+    recordId: item.id,
+    amount: roundMoney(amount),
+    date,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: 0
+  });
+  updateFlowRecordStatus(type, item, db, true);
+  addAudit(type === 'receivable' ? 'registrou recebimento parcial' : 'registrou pagamento parcial', recordEntityLabel(type), `${recordDisplayName(type, item)} - ${formatMoney(amount)} em ${dateOrDash(date)}`);
+  saveData();
+  $('#flowEntryAmount').value = '';
+  $('#flowEntryDate').value = dateStamp();
+  renderFlowDialog();
+  toast(type === 'receivable' ? 'Recebimento registrado.' : 'Pagamento registrado.', 'good');
+}
+
+function deleteFlowEntryById(entryId) {
+  const entry = db.finances.settlements.find(item => item.id === entryId && !item.deletedAt);
+  if (!entry || !confirm(`Excluir este lançamento de ${formatMoney(entry.amount)}?`)) return;
+  const item = getCollection(entry.recordType)?.find(record => record.id === entry.recordId && !record.deletedAt);
+  entry.deletedAt = Date.now();
+  entry.updatedAt = entry.deletedAt;
+  if (item) updateFlowRecordStatus(entry.recordType, item, db, true);
+  addAudit('excluiu lançamento', recordEntityLabel(entry.recordType), `${item ? recordDisplayName(entry.recordType, item) : 'Registro'} - ${formatMoney(entry.amount)}`);
+  saveData();
+  renderFlowDialog();
+  toast('Lançamento excluído.', 'good');
+}
+
+function editCurrentFlowRecord() {
+  const type = $('#flowRecordType').value;
+  const id = $('#flowRecordId').value;
+  closeDialog('flowDialog');
+  openRecordDialog(type, id);
+}
+
+function updateFlowRecordStatus(type, item, database = db, touch = false) {
+  if (!item) return;
+  const complete = remainingFlowAmount(type, item, database) <= 0 && Number(item.amount || 0) > 0;
+  item.status = complete ? (type === 'receivable' ? 'received' : 'paid') : 'open';
+  if (touch) item.updatedAt = Date.now();
 }
 
 function openTaskDialog(id = '') {
@@ -1962,7 +2124,8 @@ function openRecordActions(type, id, anchor) {
   $('#quickEditBtn').hidden = false;
   $('#quickEditOrderBtn').hidden = true;
   $('#quickDeleteOrderBtn').hidden = true;
-  if (type !== 'account') $('#quickStateBtn').innerHTML = iconSvg(config.cycleIcon) + escapeHTML(config.cycleTitle);
+  if (type === 'receivable' || type === 'debt') $('#quickStateBtn').innerHTML = iconSvg('receipt') + 'Movimentações';
+  else if (type !== 'account') $('#quickStateBtn').innerHTML = iconSvg(config.cycleIcon) + escapeHTML(config.cycleTitle);
   $('#quickEditBtn').innerHTML = iconSvg('edit-3') + 'Editar';
   showQuickActionsMenu(anchor);
 }
@@ -2010,7 +2173,8 @@ function runQuickStateAction() {
   const type = $('#quickActionsType').value;
   const id = $('#quickActionsId').value;
   if (type === 'task') toggleTaskStatus(id);
-  else if (['expense', 'income', 'receivable', 'debt'].includes(type)) cycleRecordStatus(type, id);
+  else if (type === 'receivable' || type === 'debt') openFlowDialog(type, id);
+  else if (['expense', 'income'].includes(type)) cycleRecordStatus(type, id);
   else return;
   closeQuickActionsMenu();
 }
@@ -2111,13 +2275,12 @@ function clearBoughtItems() {
 }
 
 function cycleRecordStatus(type, id) {
+  if (!['expense', 'income'].includes(type)) return;
   const item = getCollection(type).find(entry => entry.id === id);
   if (!item) return;
   if ((type === 'expense' || type === 'income') && item.amount == null) return toast('Defina o valor antes de concluir este registro.', 'error');
   if (type === 'expense') item.status = item.status === 'paid' ? 'pending' : 'paid';
   if (type === 'income') item.status = item.status === 'received' ? 'expected' : 'received';
-  if (type === 'receivable') item.status = item.status === 'received' ? 'open' : 'received';
-  if (type === 'debt') item.status = item.status === 'paid' ? 'open' : 'paid';
   item.updatedAt = Date.now();
   addAudit('alterou o status de', recordEntityLabel(type), `${recordDisplayName(type, item)} para ${statusLabel(type, item.status)}`);
   saveData();
@@ -2546,7 +2709,7 @@ function defaultDB() {
 
   return {
     appId: APP_ID,
-    schemaVersion: 1,
+    schemaVersion: 2,
     createdAt: now,
     updatedAt: now,
     settings: {
@@ -2563,7 +2726,8 @@ function defaultDB() {
         { id: 'account-poupanca', name: 'Poupança', type: 'Poupança', balance: 0, notes: '', createdAt: now, updatedAt: now }
       ],
       receivables: [],
-      debts: []
+      debts: [],
+      settlements: []
     },
     tasks: [],
     pantry: {
@@ -2589,8 +2753,8 @@ function normalizeDB(input) {
   };
   normalized.appId = APP_ID;
   normalized.settings.reminders = normalizeReminderSettings(data.settings?.reminders);
-  normalized.schemaVersion = 1;
-  ['expenses', 'incomes', 'accounts', 'receivables', 'debts', 'recurring'].forEach(key => {
+  normalized.schemaVersion = 2;
+  ['expenses', 'incomes', 'accounts', 'receivables', 'debts', 'recurring', 'settlements'].forEach(key => {
     normalized.finances[key] = Array.isArray(normalized.finances[key]) ? normalized.finances[key].map(normalizeItem) : [];
   });
   ['products', 'list'].forEach(key => {
@@ -2611,7 +2775,38 @@ function normalizeDB(input) {
   normalized.pantry.categories = Array.from(new Set(normalized.pantry.categories.concat(normalized.pantry.categoryMeta.map(entry => entry.name))));
   normalized.pantry.sites = dedupeTextValues(Array.isArray(normalized.pantry.sites) ? normalized.pantry.sites : []);
   normalized.audit = Array.isArray(normalized.audit) ? normalized.audit.map(normalizeItem) : [];
+  migrateLegacyFlowSettlements(normalized);
+  reconcileFlowStatuses(normalized);
   return normalizeLogicalDuplicates(normalized);
+}
+
+function migrateLegacyFlowSettlements(database) {
+  const settlements = database.finances.settlements;
+  [['receivable', 'receivables', 'received'], ['debt', 'debts', 'paid']].forEach(([type, collection, completedStatus]) => {
+    visible(database.finances[collection]).forEach(item => {
+      const hasHistory = settlements.some(entry => entry.recordType === type && entry.recordId === item.id);
+      if (hasHistory || item.status !== completedStatus || !(Number(item.amount) > 0)) return;
+      const stamp = Number(item.updatedAt || item.createdAt || Date.now());
+      const date = new Date(stamp);
+      settlements.push({
+        id: `settlement_legacy_${type}_${item.id}`,
+        recordType: type,
+        recordId: item.id,
+        amount: roundMoney(item.amount),
+        date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+        legacy: true,
+        createdAt: stamp,
+        updatedAt: stamp,
+        deletedAt: 0
+      });
+    });
+  });
+}
+
+function reconcileFlowStatuses(database) {
+  [['receivable', 'receivables'], ['debt', 'debts']].forEach(([type, collection]) => {
+    visible(database.finances[collection]).forEach(item => updateFlowRecordStatus(type, item, database));
+  });
 }
 
 function normalizeItem(item) {
@@ -3132,6 +3327,7 @@ function mergeDB(remote, local) {
   merged.finances.accounts = mergeArray(remote.finances.accounts, local.finances.accounts);
   merged.finances.receivables = mergeArray(remote.finances.receivables, local.finances.receivables);
   merged.finances.debts = mergeArray(remote.finances.debts, local.finances.debts);
+  merged.finances.settlements = mergeArray(remote.finances.settlements, local.finances.settlements);
   merged.tasks = mergeArray(remote.tasks, local.tasks);
   merged.pantry.products = mergeArray(remote.pantry.products, local.pantry.products);
   merged.pantry.list = mergeArray(remote.pantry.list, local.pantry.list);
@@ -3140,6 +3336,7 @@ function mergeDB(remote, local) {
   merged.pantry.categories = Array.from(new Set([...(remote.pantry.categories || []), ...(local.pantry.categories || [])]));
   merged.pantry.sites = Array.from(new Set([...(remote.pantry.sites || []), ...(local.pantry.sites || [])]));
   merged.updatedAt = Math.max(Number(remote.updatedAt || 0), Number(local.updatedAt || 0), Date.now());
+  reconcileFlowStatuses(merged);
   return normalizeLogicalDuplicates(merged);
 }
 
@@ -3497,7 +3694,10 @@ function toast(message, type = '') {
   const toastEl = document.createElement('div');
   toastEl.className = `toast ${type}`;
   toastEl.textContent = message;
-  $('#toastRegion').appendChild(toastEl);
+  const openDialogs = $$('dialog[open]');
+  const host = openDialogs[openDialogs.length - 1] || $('#toastRegion');
+  if (host.tagName === 'DIALOG') toastEl.classList.add('is-dialog-toast');
+  host.appendChild(toastEl);
   setTimeout(() => toastEl.remove(), 3400);
 }
 
