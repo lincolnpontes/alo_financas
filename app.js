@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.17';
+const APP_VERSION = '1.0.18';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -11,6 +11,7 @@ const REMINDER_META_KEY = 'alo_financas_reminder_meta_v1';
 const SYNC_DEBOUNCE_MS = 1800;
 const MARKET_REORDER_DELAY_MS = 10000;
 const MARKET_PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+const SYNC_POLL_MS = 8000;
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const DATE_LONG = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -55,6 +56,7 @@ const ICONS = {
   'refresh-cw': '<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"></path><path d="M3 21v-5h5"></path><path d="M3 12A9 9 0 0 1 18.5 5.8L21 8"></path><path d="M21 3v5h-5"></path>',
   search: '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path>',
   send: '<path d="m22 2-7 20-4-9-9-4 20-7Z"></path><path d="M22 2 11 13"></path>',
+  'skip-forward': '<path d="m5 4 10 8-10 8V4Z"></path><path d="M19 5v14"></path>',
   settings: '<path d="M12.2 2h-.4l-1 2.6a7.8 7.8 0 0 0-1.8.8L6.4 4.3l-.3.3-2 3.4.2.4 2.1.6a8 8 0 0 0 0 2L4.3 11.6l-.2.4 2 3.4.3.3L9 14.6c.6.4 1.2.6 1.8.8l1 2.6h.4l1-2.6c.6-.2 1.2-.4 1.8-.8l2.6 1.1.3-.3 2-3.4-.2-.4-2.1-.6a8 8 0 0 0 0-2l2.1-.6.2-.4-2-3.4-.3-.3L15 5.4a7.8 7.8 0 0 0-1.8-.8L12.2 2Z"></path><circle cx="12" cy="10" r="3"></circle>',
   star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2l-5-4.9 6.9-1L12 2Z"></path>',
   'shopping-basket': '<path d="m5 11 4-7"></path><path d="m19 11-4-7"></path><path d="M2 11h20"></path><path d="m3.5 11 1.6 8.1A2 2 0 0 0 7 21h10a2 2 0 0 0 2-1.9l1.5-8.1"></path><path d="M9 15v2"></path><path d="M15 15v2"></path>',
@@ -147,6 +149,9 @@ function bindEvents() {
   });
   window.addEventListener('online', () => {
     if (syncState.user) (syncState.meta.localDirty ? pushRemoteData(false, false) : checkRemoteRevision()).catch(() => {});
+  });
+  window.addEventListener('focus', () => {
+    if (syncState.user) checkRemoteRevision().catch(() => {});
   });
   $('#recordForm').addEventListener('submit', saveRecordFromForm);
   $('#quickAmountForm').addEventListener('submit', saveQuickAmountFromForm);
@@ -352,6 +357,7 @@ function handleDocumentClick(event) {
   if (button.id === 'deleteSyncUserBtn') deleteSyncUser();
   if (button.id === 'quickStateBtn') runQuickStateAction();
   if (button.id === 'quickTaskProgressBtn') runQuickTaskProgressAction();
+  if (button.id === 'quickSkipWeekBtn') runQuickSkipWeekAction();
   if (button.id === 'quickPriorityBtn') runQuickPriorityAction();
   if (button.id === 'quickEditBtn') runQuickEditAction();
   if (button.id === 'quickHeaderEditBtn') runQuickProductEditAction();
@@ -364,6 +370,7 @@ function handleDocumentClick(event) {
   if (button.id === 'exportProductsXlsxBtn') exportProductsXlsx();
   if (button.id === 'importProductsXlsxBtn') $('#importProductsXlsxInput').click();
   if (button.id === 'notificationPermissionBtn') requestNotificationPermission();
+  if (button.id === 'clearMarketFiltersBtn') clearMarketFilters();
   if (button.id === 'clearBoughtBtn') clearBoughtItems();
   if (button.id === 'accessLoginBtn') {
     event.preventDefault();
@@ -407,12 +414,16 @@ function handleDocumentChange(event) {
 
   if (event.target.id === 'marketStatusFilter') {
     state.marketFilter = event.target.value || 'all';
-    renderShoppingList();
+    renderMarket();
   }
 
   if (event.target.id === 'marketCategoryFilter') {
     state.marketCategory = event.target.value || 'all';
-    renderShoppingList();
+    renderMarket();
+  }
+
+  if (event.target.id === 'productCategory') {
+    $('#productEmojiInput').placeholder = categoryEmoji(event.target.value, '📦');
   }
 
   if (event.target.id === 'taskStatusFilter') {
@@ -502,7 +513,7 @@ function renderDashboard() {
     ? dueSoon.map(item => {
         const tone = expenseVisualState(item) === 'overdue' ? 'danger' : 'warning';
         const subtitle = isWeeklyExpense(item)
-          ? `${weeklyPaidCount(item)}/${weeklyExpectedCountForItem(item)} semanas pagas`
+          ? `${weeklyHandledCount(item)}/${weeklyExpectedCountForItem(item)} semanas resolvidas`
           : `${statusLabel('expense', item.status)} - dia ${item.dueDay || '-'}`;
         return stackRow(item.title, subtitle, item.amount == null ? 'A definir' : formatMoney(item.amount), 'calendar-days', tone);
       }).join('')
@@ -650,6 +661,7 @@ function renderMarket() {
   renderShoppingList();
   $('#marketStatusFilter').value = state.marketFilter;
   $('#marketCategoryFilter').value = state.marketCategory;
+  $('#clearMarketFiltersBtn').disabled = state.marketFilter === 'all' && state.marketCategory === 'all';
   $('#clearBoughtBtn').disabled = boughtItems().length === 0;
 }
 
@@ -705,6 +717,7 @@ function renderShoppingList() {
 
 function renderSettings() {
   $('#versionPill').textContent = `v${APP_VERSION}`;
+  $('#loginVersion').textContent = `v${APP_VERSION}`;
   renderReminderSettings();
   renderSyncUsers();
   renderAudit();
@@ -811,7 +824,7 @@ async function checkDueNotifications() {
         const dueAt = expenseDueTimestamp(item);
         if (dueAt && now >= dueAt - daysBeforeMs) {
           const body = isWeeklyExpense(item)
-            ? `${item.title} - ${formatMoney(item.weeklyAmount)} por semana - ${weeklyPaidCount(item)}/${weeklyExpectedCountForItem(item)} pagas`
+            ? `${item.title} - ${formatMoney(item.weeklyAmount)} por semana - ${weeklyHandledCount(item)}/${weeklyExpectedCountForItem(item)} resolvidas`
             : `${item.title} - ${formatMoney(item.amount)} - dia ${String(item.dueDay || 1).padStart(2, '0')}`;
           candidates.push({ key: `expense:${item.id}`, title: 'Conta próxima do vencimento', body, view: 'finances', frequencyHours: expenseProfile.frequencyHours });
         }
@@ -900,7 +913,7 @@ function expenseDueTimestamp(item) {
   if (!year || !month) return 0;
   if (isWeeklyExpense(item)) {
     const days = weeklyOccurrenceDays(item.month, item.weeklyDay);
-    const nextDay = days[Math.min(weeklyPaidCount(item), days.length - 1)];
+    const nextDay = days[Math.min(weeklyHandledCount(item), days.length - 1)];
     return nextDay ? new Date(year, month - 1, nextDay, 9, 0, 0, 0).getTime() : 0;
   }
   const lastDay = new Date(year, month, 0).getDate();
@@ -1194,9 +1207,9 @@ function rowConfig(type, item) {
 function expenseVisualState(item) {
   if (isWeeklyExpense(item)) {
     const expected = weeklyExpectedCountForItem(item);
-    const paid = weeklyPaidCount(item);
-    if (expected > 0 && paid >= expected) return 'paid';
-    return paid < weeklyDueCountThrough(item) ? 'overdue' : 'pending';
+    const handled = weeklyHandledCount(item);
+    if (expected > 0 && handled >= expected) return 'paid';
+    return handled < weeklyDueCountThrough(item) ? 'overdue' : 'pending';
   }
   if (item.status === 'paid') return 'paid';
   const [year, month] = String(item.month || currentMonth()).split('-').map(Number);
@@ -1234,6 +1247,14 @@ function weeklyPayments(item, includeDeleted = false) {
 }
 
 function weeklyPaidCount(item) {
+  return weeklyPayments(item).filter(entry => entry.kind !== 'skipped').length;
+}
+
+function weeklySkippedCount(item) {
+  return weeklyPayments(item).filter(entry => entry.kind === 'skipped').length;
+}
+
+function weeklyHandledCount(item) {
   return weeklyPayments(item).length;
 }
 
@@ -1248,7 +1269,7 @@ function weeklyDueCountThrough(item, referenceDate = new Date()) {
 function expenseSortDay(item) {
   if (!isWeeklyExpense(item)) return Number(item?.dueDay || 99);
   const days = weeklyOccurrenceDays(item.month, item.weeklyDay);
-  return Number(days[Math.min(weeklyPaidCount(item), Math.max(0, days.length - 1))] || 99);
+  return Number(days[Math.min(weeklyHandledCount(item), Math.max(0, days.length - 1))] || 99);
 }
 
 function expensePaidAmount(item) {
@@ -1265,19 +1286,23 @@ function expenseOpenAmount(item) {
 function weeklyExpenseBadge(item) {
   const expected = weeklyExpectedCountForItem(item);
   const paid = Math.min(weeklyPaidCount(item), expected);
-  const stateClass = paid >= expected && expected > 0 ? 'paid' : paid > 0 ? 'partial' : expenseVisualState(item);
-  return `<span class="badge ${escapeAttr(stateClass)}">${paid}/${expected} pagas</span>`;
+  const skipped = Math.min(weeklySkippedCount(item), expected);
+  const handled = Math.min(weeklyHandledCount(item), expected);
+  const stateClass = handled >= expected && expected > 0 ? 'paid' : handled > 0 ? 'partial' : expenseVisualState(item);
+  const skippedLabel = skipped ? ` · ${skipped} ${skipped === 1 ? 'pulada' : 'puladas'}` : '';
+  return `<span class="badge ${escapeAttr(stateClass)}">${paid}/${expected} pagas${skippedLabel}</span>`;
 }
 
 function reconcileWeeklyExpenseStatus(item, touch = false) {
   if (!isWeeklyExpense(item)) return;
   const expected = weeklyExpectedCountForItem(item);
-  const paid = weeklyPaidCount(item);
-  const nextStatus = expected > 0 && paid >= expected ? 'paid' : 'pending';
+  const skipped = Math.min(weeklySkippedCount(item), expected);
+  const handled = weeklyHandledCount(item);
+  const nextStatus = expected > 0 && handled >= expected ? 'paid' : 'pending';
   const statusChanged = item.status !== nextStatus;
   item.weeklyExpected = expected;
   item.dueDay = weeklyOccurrenceDays(item.month, item.weeklyDay)[0] || 1;
-  item.amount = item.weeklyAmount == null ? null : roundMoney(Number(item.weeklyAmount || 0) * expected);
+  item.amount = item.weeklyAmount == null ? null : roundMoney(Number(item.weeklyAmount || 0) * Math.max(0, expected - skipped));
   item.status = nextStatus;
   if (touch && statusChanged) {
     item.statusUpdatedAt = Date.now();
@@ -1349,6 +1374,8 @@ function productHasDetails(product) {
 }
 
 function productEmoji(product) {
+  const ownEmoji = String(product?.emoji || '').trim();
+  if (ownEmoji) return ownEmoji;
   const configuredEmoji = categoryEmoji(product.category, '');
   if (configuredEmoji) return configuredEmoji;
   const text = normalizeText(`${product.category} ${product.name}`);
@@ -1862,6 +1889,7 @@ function openTaskActions(id, anchor) {
   $('#quickActionsEyebrow').textContent = 'Tarefa';
   $('#quickActionsTitle').textContent = item.title;
   $('#quickTaskProgressBtn').hidden = completed;
+  $('#quickSkipWeekBtn').hidden = true;
   $('#quickPriorityBtn').hidden = true;
   $('#quickStateBtn').hidden = false;
   $('#quickHeaderEditBtn').hidden = true;
@@ -1881,6 +1909,8 @@ function openProductDialog(id = '') {
   $('#productId').value = product?.id || '';
   $('#productName').value = product?.name || '';
   $('#productCategory').value = product?.category || 'Mercado';
+  $('#productEmojiInput').value = product?.emoji || '';
+  $('#productEmojiInput').placeholder = categoryEmoji(product?.category || 'Mercado', '📦');
   $('#productDefaultQty').value = product?.defaultQty ? formatNumberInput(product.defaultQty) : '';
   $('#productUnit').value = product?.units || product?.unit || 'un';
   $('#productGoodBrands').value = product?.goodBrands || '';
@@ -1902,6 +1932,7 @@ function saveProductFromForm(event) {
   const product = existing || { id, createdAt: now };
   product.name = name;
   product.category = $('#productCategory').value.trim() || 'Mercado';
+  product.emoji = $('#productEmojiInput').value.trim();
   product.defaultQty = parseDecimal($('#productDefaultQty').value) || 1;
   const units = parseRegistryValues($('#productUnit').value);
   product.units = units.join('; ');
@@ -1923,7 +1954,7 @@ function openProductDetails(productId) {
   const product = db.pantry.products.find(item => item.id === productId && !item.deletedAt);
   if (!product || !productHasDetails(product)) return;
   $('#productDetailsTitle').textContent = product.name;
-  $('#productDetailsCategory').textContent = `${categoryEmoji(product.category)} ${product.category || 'Mercado'}`;
+  $('#productDetailsCategory').textContent = `${productEmoji(product)} ${product.category || 'Mercado'}`;
   const detailFields = [
     { wrap: $('#productDetailsGoodBrandsWrap'), value: product.goodBrands, full: false },
     { wrap: $('#productDetailsBadBrandsWrap'), value: product.badBrands, full: false },
@@ -1946,6 +1977,7 @@ async function exportProductsXlsx() {
     .sort((a, b) => a.name.localeCompare(b.name))
     .map(product => [
       product.name,
+      product.emoji || productEmoji(product),
       product.category || 'Mercado',
       Number(product.defaultQty || 1),
       product.units || product.unit || 'un'
@@ -1962,17 +1994,19 @@ async function exportProductsXlsx() {
     style: { theme: 'TableStyleMedium4', showRowStripes: true },
     columns: [
       { name: 'Nome', filterButton: true },
+      { name: 'Emoji', filterButton: true },
       { name: 'Categoria', filterButton: true },
       { name: 'Qtd. padrão', filterButton: true },
       { name: 'Unidades de compra', filterButton: true }
     ],
     rows
   });
-  worksheet.columns = [{ width: 30 }, { width: 22 }, { width: 14 }, { width: 28 }];
+  worksheet.columns = [{ width: 30 }, { width: 10 }, { width: 22 }, { width: 14 }, { width: 28 }];
   worksheet.getRow(1).height = 24;
   worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
   worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
-  worksheet.getColumn(3).alignment = { horizontal: 'center', vertical: 'middle' };
+  worksheet.getColumn(2).alignment = { horizontal: 'center', vertical: 'middle' };
+  worksheet.getColumn(4).alignment = { horizontal: 'center', vertical: 'middle' };
 
   const categorySheet = workbook.addWorksheet('Categorias');
   const availableCategories = categories.length ? categories : ['Mercado'];
@@ -1981,7 +2015,7 @@ async function exportProductsXlsx() {
   });
   categorySheet.state = 'veryHidden';
   for (let row = 2; row <= Math.max(rows.length + 20, 200); row += 1) {
-    worksheet.getCell(row, 2).dataValidation = {
+    worksheet.getCell(row, 3).dataValidation = {
       type: 'list',
       allowBlank: false,
       formulae: [`'Categorias'!$A$1:$A$${availableCategories.length}`],
@@ -2015,6 +2049,8 @@ async function importProductsXlsx(event) {
       const values = Object.fromEntries(Object.entries(row).map(([key, value]) => [normalizeText(key), value]));
       const name = String(values.nome || '').trim();
       if (!name) return;
+      const hasEmojiColumn = Object.prototype.hasOwnProperty.call(values, 'emoji');
+      const emoji = String(values.emoji || '').trim();
       const category = String(values.categoria || 'Mercado').trim() || 'Mercado';
       const qty = parseDecimal(values['qtd. padrao']) || 1;
       const units = parseRegistryValues(String(values['unidades de compra'] || 'un'));
@@ -2023,10 +2059,12 @@ async function importProductsXlsx(event) {
         updated += 1;
       } else {
         created += 1;
-        product = { id: uid('product'), name, goodBrands: '', badBrands: '', notes: '', createdAt: now };
+        product = { id: uid('product'), name, emoji: '', goodBrands: '', badBrands: '', notes: '', createdAt: now };
         db.pantry.products.push(product);
       }
       product.name = name;
+      if (hasEmojiColumn) product.emoji = emoji;
+      else if (product.emoji == null) product.emoji = '';
       product.category = category;
       product.defaultQty = qty;
       product.units = units.join('; ') || 'un';
@@ -2378,16 +2416,19 @@ function openRecordActions(type, id, anchor) {
   $('#quickActionsTitle').textContent = config.title;
   const weekly = type === 'expense' && isWeeklyExpense(item);
   const weeklyPaid = weekly ? weeklyPaidCount(item) : 0;
+  const weeklyHandled = weekly ? weeklyHandledCount(item) : 0;
   const weeklyExpected = weekly ? weeklyExpectedCountForItem(item) : 0;
-  $('#quickTaskProgressBtn').hidden = !weekly || weeklyPaid === 0;
+  $('#quickTaskProgressBtn').hidden = !weekly || weeklyHandled === 0;
+  $('#quickSkipWeekBtn').hidden = !weekly || weeklyHandled >= weeklyExpected;
   $('#quickPriorityBtn').hidden = true;
-  $('#quickStateBtn').hidden = type === 'account' || (weekly && weeklyPaid >= weeklyExpected);
+  $('#quickStateBtn').hidden = type === 'account' || (weekly && weeklyHandled >= weeklyExpected);
   $('#quickHeaderEditBtn').hidden = true;
   $('#quickEditBtn').hidden = false;
   $('#quickEditOrderBtn').hidden = true;
   $('#quickDeleteOrderBtn').hidden = true;
   if (weekly) {
-    $('#quickStateBtn').innerHTML = iconSvg('plus') + `Registrar semana ${Math.min(weeklyPaid + 1, weeklyExpected)}/${weeklyExpected}`;
+    $('#quickStateBtn').innerHTML = iconSvg('plus') + `Registrar semana ${Math.min(weeklyHandled + 1, weeklyExpected)}/${weeklyExpected}`;
+    $('#quickSkipWeekBtn').innerHTML = iconSvg('skip-forward') + `Pular semana ${Math.min(weeklyHandled + 1, weeklyExpected)}/${weeklyExpected}`;
     $('#quickTaskProgressBtn').innerHTML = iconSvg('undo') + 'Desfazer última semana';
   }
   else if (type === 'receivable' || type === 'debt') $('#quickStateBtn').innerHTML = iconSvg('receipt') + 'Movimentações';
@@ -2407,6 +2448,7 @@ function openProductActions(id, listId, anchor) {
   $('#quickActionsEyebrow').textContent = 'Produto';
   $('#quickActionsTitle').textContent = product.name;
   $('#quickTaskProgressBtn').hidden = true;
+  $('#quickSkipWeekBtn').hidden = true;
   $('#quickPriorityBtn').hidden = !canPrioritize;
   $('#quickPriorityBtn').innerHTML = iconSvg(listItem?.priority === 'high' ? 'undo' : 'star') + (listItem?.priority === 'high' ? 'Remover prioridade alta' : 'Marcar prioridade alta');
   $('#quickStateBtn').hidden = true;
@@ -2451,6 +2493,14 @@ function runQuickTaskProgressAction() {
   if (type === 'task') toggleTaskProgress(id);
   else if (type === 'expense') changeWeeklyPayment(id, -1);
   else return;
+  closeQuickActionsMenu();
+}
+
+function runQuickSkipWeekAction() {
+  const type = $('#quickActionsType').value;
+  const id = $('#quickActionsId').value;
+  if (type !== 'expense') return;
+  changeWeeklyPayment(id, 1, 'skipped');
   closeQuickActionsMenu();
 }
 
@@ -2542,6 +2592,12 @@ function clearBoughtItems() {
   toast('Itens comprados e recebidos foram zerados.', 'good');
 }
 
+function clearMarketFilters() {
+  state.marketFilter = 'all';
+  state.marketCategory = 'all';
+  renderMarket();
+}
+
 function cycleRecordStatus(type, id) {
   if (!['expense', 'income'].includes(type)) return;
   const item = getCollection(type).find(entry => entry.id === id);
@@ -2558,7 +2614,7 @@ function cycleRecordStatus(type, id) {
   saveData();
 }
 
-function changeWeeklyPayment(id, direction) {
+function changeWeeklyPayment(id, direction, kind = 'paid') {
   const item = db.finances.expenses.find(entry => entry.id === id && !entry.deletedAt);
   if (!item || !isWeeklyExpense(item)) return;
   if (item.weeklyAmount == null) {
@@ -2570,20 +2626,23 @@ function changeWeeklyPayment(id, direction) {
   const expected = weeklyExpectedCountForItem(item);
   const payments = weeklyPayments(item);
   if (direction > 0) {
-    if (payments.length >= expected) return toast('Todas as semanas deste mês já foram pagas.', 'good');
-    item.weeklyPayments.push({ id: uid('weekly-payment'), date: dateStamp(), createdAt: now, updatedAt: now, deletedAt: 0 });
-    addAudit('registrou uma semana paga de', 'a despesa', `${item.title} - ${payments.length + 1}/${expected}`);
+    if (payments.length >= expected) return toast('Todas as semanas deste mês já foram resolvidas.', 'good');
+    const occurrenceDate = weeklyOccurrenceDays(item.month, item.weeklyDay)[payments.length] || null;
+    const entryKind = kind === 'skipped' ? 'skipped' : 'paid';
+    item.weeklyPayments.push({ id: uid('weekly-payment'), kind: entryKind, occurrenceDate, date: dateStamp(), createdAt: now, updatedAt: now, deletedAt: 0 });
+    addAudit(entryKind === 'skipped' ? 'pulou uma semana de' : 'registrou uma semana paga de', 'a despesa', `${item.title} - ${payments.length + 1}/${expected}`);
   } else {
     const latest = payments.sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))[0];
     if (!latest) return;
     latest.deletedAt = now;
     latest.updatedAt = now;
-    addAudit('desfez a última semana paga de', 'a despesa', item.title);
+    addAudit(latest.kind === 'skipped' ? 'desfez a semana pulada de' : 'desfez a última semana paga de', 'a despesa', item.title);
   }
   reconcileWeeklyExpenseStatus(item, true);
   item.updatedAt = now;
   saveData();
-  toast(direction > 0 ? 'Semana paga registrada.' : 'Última semana reaberta.', 'good');
+  const message = direction < 0 ? 'Última semana reaberta.' : kind === 'skipped' ? 'Semana pulada. Ela não será cobrada.' : 'Semana paga registrada.';
+  toast(message, 'good');
 }
 
 function upsertRecurrence(id, type, item, keepValue) {
@@ -3346,7 +3405,12 @@ function scheduleSync() {
 }
 
 async function pushRemoteData(force = false, notify = false) {
-  if (!syncEnabled() || !syncState.user || syncState.busy) return false;
+  if (!syncEnabled() || !syncState.user) return false;
+  if (syncState.busy) {
+    clearTimeout(syncState.timer);
+    syncState.timer = setTimeout(() => pushRemoteData(force, notify), 1200);
+    return false;
+  }
   if (!force && !syncState.meta.localDirty) return true;
   syncState.busy = true;
   renderSyncStatus();
@@ -3447,10 +3511,8 @@ async function pullRemoteData(options = {}) {
 async function checkRemoteRevision() {
   if (!syncEnabled() || !syncState.user || syncState.busy) return;
   const status = await syncRequest('check');
-  if (Number(status.revision || 0) > syncState.revision) {
-    if (syncState.meta.localDirty) await pushRemoteData(false, false);
-    else await pullRemoteData({ merge: true, notify: false });
-  }
+  if (syncState.meta.localDirty) await pushRemoteData(false, false);
+  else if (Number(status.revision || 0) > syncState.revision) await pullRemoteData({ merge: true, notify: false });
 }
 
 function startSyncPolling() {
@@ -3458,7 +3520,7 @@ function startSyncPolling() {
   if (!syncEnabled() || !syncState.user) return;
   syncState.pollTimer = setInterval(() => {
     if (document.visibilityState === 'visible') checkRemoteRevision().catch(() => {});
-  }, 20000);
+  }, SYNC_POLL_MS);
 }
 
 async function syncRequest(action, payload = {}, urlOverride = '') {
@@ -3763,7 +3825,7 @@ function normalizeLogicalDuplicates(data) {
   activeProducts.forEach(group => {
     group.sort((a, b) => productRecordScore(b) - productRecordScore(a) || itemStamp(b) - itemStamp(a));
     const canonical = clone(group[0]);
-    ['category', 'unit', 'units', 'goodBrands', 'badBrands', 'notes'].forEach(field => {
+    ['emoji', 'category', 'unit', 'units', 'goodBrands', 'badBrands', 'notes'].forEach(field => {
       if (!canonical[field]) canonical[field] = group.find(item => item[field])?.[field] || '';
     });
     if (!(Number(canonical.defaultQty) > 0)) canonical.defaultQty = Number(group.find(item => Number(item.defaultQty) > 0)?.defaultQty || 1);

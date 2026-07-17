@@ -4708,3 +4708,58 @@ body[data-active-view="tasks"] .topbar {
     flex: 1 1 0;
   }
 }
+
+/* Weekly skips, product emojis and compact settings for 1.0.18 */
+.product-emoji-field input {
+  text-align: center;
+  font-size: 1.35rem;
+}
+
+.login-version {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+#view-market .market-select-filters {
+  display: grid;
+  grid-template-columns: 44px minmax(116px, 0.58fr) minmax(180px, 1fr);
+  align-items: end;
+  gap: 8px;
+}
+
+#view-market .market-reset-button {
+  width: 44px;
+  height: 47px;
+  min-height: 47px;
+}
+
+#view-market .market-status-filter {
+  min-width: 0;
+}
+
+@media (min-width: 1121px) {
+  .settings-grid > .backup-panel {
+    grid-column: span 4;
+  }
+
+  .settings-grid > .settings-action-panel:last-child {
+    grid-column: span 8;
+  }
+}
+
+@media (max-width: 760px) {
+  #view-market .market-select-filters {
+    grid-template-columns: 40px minmax(92px, 0.62fr) minmax(122px, 1fr);
+    width: 100%;
+    gap: 6px;
+  }
+
+  #view-market .market-reset-button {
+    width: 40px;
+    height: 44px;
+    min-height: 44px;
+  }
+}

@@ -146,7 +146,8 @@
         <article class="panel market-panel">
           <div class="market-filter-row">
             <div class="market-select-filters">
-              <label class="filter-select">
+              <button class="icon-btn market-reset-button" type="button" id="clearMarketFiltersBtn" title="Limpar filtros" aria-label="Limpar filtros" data-icon="refresh-cw"></button>
+              <label class="filter-select market-status-filter">
                 <span>Situação</span>
                 <select id="marketStatusFilter">
                   <option value="all">Tudo</option>
@@ -393,7 +394,7 @@
             </div>
           </details>
 
-          <article class="panel">
+          <article class="panel backup-panel">
             <div class="panel-title">
               <h3>Backup</h3>
               <span class="status-pill" id="backupStatus">JSON</span>
@@ -639,6 +640,10 @@
           <span>Nome</span>
           <input id="productName" required autocomplete="off" />
         </label>
+        <label class="product-emoji-field">
+          <span>Emoji próprio</span>
+          <input id="productEmojiInput" maxlength="8" autocomplete="off" />
+        </label>
         <label>
           <span>Categoria</span>
           <select id="productCategory" required></select>
@@ -791,6 +796,7 @@
     <input type="hidden" id="quickActionsItemId" />
     <div class="quick-action-list">
       <button type="button" id="quickTaskProgressBtn" hidden>Iniciar execução</button>
+      <button type="button" id="quickSkipWeekBtn" hidden>Pular semana</button>
       <button type="button" id="quickPriorityBtn" hidden>Marcar prioridade alta</button>
       <button type="button" id="quickStateBtn">Desfazer pagamento</button>
       <button type="button" id="quickEditBtn">Editar</button>
@@ -918,6 +924,7 @@
         <img class="brand-mark" src="icon.svg" alt="" aria-hidden="true" />
         <div>
           <h3>Alô Finanças</h3>
+          <small class="login-version" id="loginVersion">v1.0.18</small>
         </div>
       </div>
       <label>
