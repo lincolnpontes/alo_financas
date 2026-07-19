@@ -120,14 +120,14 @@ public class BiometricLoginPlugin extends Plugin {
         BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
             .setSubtitle(subtitle)
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.BIOMETRIC_WEAK)
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
             .setNegativeButtonText("Usar senha")
             .build();
         activity.runOnUiThread(() -> prompt.authenticate(promptInfo));
     }
 
     private boolean biometricAvailable() {
-        int authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.BIOMETRIC_WEAK;
+        int authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK;
         return BiometricManager.from(getContext()).canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS;
     }
 

@@ -66,7 +66,6 @@
             <h2 id="financesTitle">Finanças</h2>
           </div>
           <div class="finance-heading-actions">
-            <button class="icon-btn privacy-toggle" type="button" id="financePrivacyToggle" title="Ocultar valores" aria-label="Ocultar valores"><span aria-hidden="true">👁️</span></button>
             <div class="month-switcher finance-month-switcher" aria-label="Mês das finanças">
               <button class="icon-btn" type="button" id="prevMonthBtn" title="Mês anterior" aria-label="Mês anterior" data-icon="chevron-left"></button>
               <label class="month-display">
@@ -75,6 +74,7 @@
               </label>
               <button class="icon-btn" type="button" id="nextMonthBtn" title="Próximo mês" aria-label="Próximo mês" data-icon="chevron-right"></button>
             </div>
+            <button class="icon-btn privacy-toggle" type="button" id="financePrivacyToggle" title="Ocultar valores" aria-label="Ocultar valores"><span aria-hidden="true">👁️</span></button>
           </div>
         </div>
 
@@ -303,30 +303,6 @@
             </div>
           </details>
 
-          <details class="panel settings-section biometric-panel native-only">
-            <summary class="settings-section-summary">
-              <div class="settings-title-lockup">
-                <span class="settings-emoji" aria-hidden="true">👆</span>
-                <div>
-                  <h3>Biometria</h3>
-                  <p>Acesso neste aparelho</p>
-                </div>
-              </div>
-              <span class="status-pill" id="biometricStatusPill">Indisponível</span>
-              <span class="settings-section-chevron" aria-hidden="true" data-static-icon="chevron-down"></span>
-            </summary>
-            <div class="settings-section-body">
-              <label class="switch-row">
-                <span>
-                  <strong>Entrar com biometria</strong>
-                  <small>Substitui a senha neste aparelho.</small>
-                </span>
-                <input id="biometricLoginEnabled" type="checkbox" />
-                <i aria-hidden="true"></i>
-              </label>
-            </div>
-          </details>
-
           <details class="panel settings-section registry-panel">
             <summary class="settings-section-summary">
               <div class="settings-title-lockup">
@@ -419,6 +395,7 @@
               </div>
               <div class="action-row reminder-actions">
                 <button class="secondary-btn" type="button" id="notificationPermissionBtn" data-icon="bell">Permitir notificações</button>
+                <button class="secondary-btn native-only" type="button" id="testAlarmBtn" data-icon="bell">Testar alarme</button>
                 <button class="primary-btn" type="submit" data-icon="check">Salvar</button>
               </div>
             </form>
@@ -980,7 +957,7 @@
         <img class="brand-mark" src="icon.svg" alt="" aria-hidden="true" />
         <div>
           <h3>Alô Finanças</h3>
-              <small class="login-version" id="loginVersion">v1.0.22</small>
+              <small class="login-version" id="loginVersion">v1.0.23</small>
         </div>
       </div>
       <label>
@@ -991,34 +968,17 @@
         <span>Senha</span>
         <input id="accessPasswordInput" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" required />
       </label>
+      <label class="switch-row login-biometric-switch native-only">
+        <span>
+          <strong>Usar biometria</strong>
+          <small id="biometricLoginHint">Verificando disponibilidade neste aparelho.</small>
+        </span>
+        <input id="biometricLoginEnabled" type="checkbox" />
+        <i aria-hidden="true"></i>
+      </label>
       <p class="form-error" id="accessLoginError" hidden></p>
       <button class="primary-btn wide" type="submit" id="accessLoginBtn" data-icon="log-in">Entrar</button>
       <button class="secondary-btn wide native-only" type="button" id="biometricLoginBtn" data-icon="fingerprint" hidden>Entrar com biometria</button>
-    </form>
-  </dialog>
-
-  <dialog class="modal pin-modal" id="biometricSetupDialog">
-    <form class="modal-card pin-card" id="biometricSetupForm">
-      <div class="modal-title">
-        <div>
-          <p class="eyebrow">Biometria</p>
-          <h3>Confirmar sua senha</h3>
-        </div>
-        <button class="icon-btn" type="button" data-close-dialog="biometricSetupDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
-      </div>
-      <label>
-        <span>Login</span>
-        <input id="biometricSetupLogin" autocomplete="username" readonly />
-      </label>
-      <label>
-        <span>Senha atual</span>
-        <input id="biometricSetupPassword" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" required />
-      </label>
-      <p class="form-error" id="biometricSetupError" hidden></p>
-      <div class="modal-actions compact-actions">
-        <button class="secondary-btn" type="button" data-close-dialog="biometricSetupDialog">Cancelar</button>
-        <button class="primary-btn" type="submit" id="biometricSetupBtn" data-icon="fingerprint">Ativar</button>
-      </div>
     </form>
   </dialog>
 

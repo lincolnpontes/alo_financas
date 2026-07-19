@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.22';
+const APP_VERSION = '1.0.23';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -13,6 +13,8 @@ const NATIVE_REMINDER_ID_MIN = 1900000000;
 const NATIVE_REMINDER_ID_MAX = 1900999999;
 const NATIVE_REMINDER_LIMIT = 320;
 const NATIVE_REMINDER_HORIZON_DAYS = 14;
+const NATIVE_ALARM_CHANNEL_ID = 'alo_alarms_v3';
+const NATIVE_TEST_ALARM_ID = 1899999999;
 const SYNC_DEBOUNCE_MS = 1800;
 const MARKET_REORDER_DELAY_MS = 10000;
 const MARKET_PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -113,6 +115,7 @@ let reminderState = readJSON(localStorage.getItem(REMINDER_META_KEY), { lastSent
 if (!reminderState || typeof reminderState !== 'object') reminderState = { lastSent: {} };
 if (!reminderState.lastSent || typeof reminderState.lastSent !== 'object') reminderState.lastSent = {};
 let nativeNotificationPermission = 'prompt';
+let nativeExactAlarmPermission = 'prompt';
 let nativeReminderSyncTimer = null;
 let nativeReminderSyncBusy = false;
 let nativeReminderSyncQueued = false;
@@ -120,7 +123,7 @@ let nativeNotificationListenerReady = false;
 let pendingNativeReminderView = '';
 let nativeLocalNotificationsPlugin = null;
 let nativeBiometricLoginPlugin = null;
-let biometricState = { available: false, enabled: false, login: '', loaded: false, autoAttempted: false };
+let biometricState = { available: false, enabled: false, login: '', loaded: false, autoAttempted: false, pendingEnable: false };
 
 if (dataCleanupPending) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
@@ -187,13 +190,11 @@ function bindEvents() {
   $('#syncUserForm').addEventListener('submit', saveSyncUserFromForm);
   $('#registryForm').addEventListener('submit', saveRegistryEntry);
   $('#accessLoginForm').addEventListener('submit', handleAccessLogin);
-  $('#biometricSetupForm').addEventListener('submit', saveBiometricSetup);
   $('#syncSetupForm').addEventListener('submit', handleSyncSetup);
   $('#syncLoginForm').addEventListener('submit', handleSyncLogin);
   $('#importFileInput').addEventListener('change', handleImportFile);
   $('#importProductsXlsxInput').addEventListener('change', importProductsXlsx);
   $('#loginDialog').addEventListener('cancel', event => event.preventDefault());
-  $('#biometricSetupDialog').addEventListener('close', renderBiometricSettings);
 }
 
 function handleDocumentClick(event) {
@@ -395,6 +396,7 @@ function handleDocumentClick(event) {
   if (button.id === 'exportProductsXlsxBtn') exportProductsXlsx();
   if (button.id === 'importProductsXlsxBtn') $('#importProductsXlsxInput').click();
   if (button.id === 'notificationPermissionBtn') requestNotificationPermission();
+  if (button.id === 'testAlarmBtn') testNativeAlarm();
   if (button.id === 'clearMarketFiltersBtn') clearMarketFilters();
   if (button.id === 'clearTaskFiltersBtn') clearTaskFilters();
   if (button.id === 'clearBoughtBtn') clearBoughtItems();
@@ -418,6 +420,10 @@ function handleDocumentClick(event) {
 function handleDocumentInput(event) {
   if (event.target.matches('[data-money-cents]')) {
     formatMoneyInputAsCents(event.target);
+  }
+
+  if (event.target.id === 'accessLoginInput' && biometricState.loaded) {
+    renderBiometricSettings();
   }
 
   if (event.target.id === 'productSearch') {
@@ -795,16 +801,27 @@ function renderReminderSettings() {
   const supported = Boolean(nativePlugin) || 'Notification' in window;
   const permission = nativePlugin ? nativeNotificationPermission : supported ? Notification.permission : 'unsupported';
   const enabledCount = ['expenses', 'tasks', 'market'].filter(type => reminders[type]?.enabled).length;
-  const active = enabledCount > 0 && permission === 'granted';
+  const exactReady = !nativePlugin || window.Capacitor?.getPlatform?.() !== 'android' || nativeExactAlarmPermission === 'granted';
+  const active = enabledCount > 0 && permission === 'granted' && exactReady;
   const pill = $('#reminderStatusPill');
-  pill.textContent = active ? `${enabledCount} ${enabledCount === 1 ? 'ativo' : 'ativos'}` : enabledCount ? 'Sem permissão' : 'Desativados';
+  pill.textContent = active
+    ? `${enabledCount} ${enabledCount === 1 ? 'alarme ativo' : 'alarmes ativos'}`
+    : enabledCount && permission !== 'granted'
+      ? 'Sem notificação'
+      : enabledCount && !exactReady
+        ? 'Liberar alarme'
+        : 'Desativados';
   pill.className = `status-pill${active ? ' good' : ''}`;
   const permissionButton = $('#notificationPermissionBtn');
   permissionButton.disabled = !supported;
-  permissionButton.innerHTML = iconSvg('bell') + (permission === 'granted' ? 'Notificações permitidas' : permission === 'denied' ? 'Permissão bloqueada' : 'Permitir notificações');
+  permissionButton.innerHTML = iconSvg('bell') + (
+    permission !== 'granted'
+      ? permission === 'denied' ? 'Permissão bloqueada' : 'Permitir notificações'
+      : !exactReady ? 'Liberar alarmes' : 'Alarmes permitidos'
+  );
 }
 
-function saveReminderSettings(event) {
+async function saveReminderSettings(event) {
   event.preventDefault();
   const reminders = {
     expenses: readReminderProfile('expense', { daysBefore: true }),
@@ -813,7 +830,13 @@ function saveReminderSettings(event) {
   };
   saveCurrentUserReminderSettings(reminders);
   renderReminderSettings();
-  scheduleNativeReminderSync(0);
+  const hasEnabledAlarm = Object.values(reminders).some(profile => profile.enabled);
+  if (nativeLocalNotifications() && hasEnabledAlarm) {
+    const ready = await ensureNativeAlarmReady(true);
+    if (ready) await syncNativeReminders();
+  } else {
+    scheduleNativeReminderSync(0);
+  }
   checkDueNotifications();
   toast(`Lembretes de ${syncState.user?.name || syncState.user?.login || 'este usuário'} atualizados.`, 'good');
 }
@@ -834,17 +857,14 @@ async function requestNotificationPermission() {
   const nativePlugin = nativeLocalNotifications();
   if (nativePlugin) {
     try {
-      const permission = await nativePlugin.requestPermissions();
-      nativeNotificationPermission = permission.display || 'prompt';
-      if (nativeNotificationPermission === 'granted') {
-        await ensureNativeNotificationChannel();
-        await requestExactAlarmAccess();
+      const ready = await ensureNativeAlarmReady(true);
+      if (ready) {
         await syncNativeReminders();
         renderReminderSettings();
-        toast('Notificações permitidas.', 'good');
+        toast('Notificações e alarmes permitidos.', 'good');
       } else {
         renderReminderSettings();
-        toast('A permissão de notificações não foi concedida.', 'error');
+        toast('Libere as notificações e os alarmes exatos para receber os avisos.', 'error');
       }
     } catch (error) {
       console.warn('Native notification permission', error);
@@ -955,88 +975,65 @@ async function initializeBiometricLogin() {
     renderBiometricSettings();
     return;
   }
-  const status = await plugin.getStatus();
-  biometricState = {
-    ...biometricState,
-    available: status.available === true,
-    enabled: status.enabled === true,
-    login: String(status.login || '').toLowerCase(),
-    loaded: true
-  };
+  try {
+    const status = await plugin.getStatus();
+    biometricState = {
+      ...biometricState,
+      available: status.available === true,
+      enabled: status.enabled === true,
+      login: String(status.login || '').toLowerCase(),
+      loaded: true
+    };
+  } catch (error) {
+    console.warn('Biometric status', error);
+    biometricState = { ...biometricState, available: false, enabled: false, loaded: true };
+  }
   renderBiometricSettings();
   maybeStartBiometricLogin();
 }
 
 function renderBiometricSettings() {
   const toggle = $('#biometricLoginEnabled');
-  const pill = $('#biometricStatusPill');
-  const currentLogin = String(syncState.user?.login || '').toLowerCase();
-  const enabledForCurrentUser = biometricState.enabled && biometricState.login === currentLogin;
-  toggle.disabled = !biometricState.available || !syncState.user;
-  toggle.checked = enabledForCurrentUser;
-  pill.textContent = !biometricState.loaded
-    ? 'Verificando'
-    : !biometricState.available
-      ? 'Indisponível'
-      : enabledForCurrentUser
-        ? 'Ativa'
-        : biometricState.enabled ? 'Outro usuário' : 'Desativada';
-  pill.className = `status-pill${enabledForCurrentUser ? ' good' : ''}`;
-
   const rememberedLogin = String(localStorage.getItem(LAST_LOGIN_KEY) || '').toLowerCase();
+  const typedLogin = String($('#accessLoginInput')?.value || rememberedLogin).trim().toLowerCase();
+  const enabledForLogin = biometricState.enabled && biometricState.login === typedLogin;
+  if (toggle) {
+    toggle.disabled = !biometricState.loaded || !biometricState.available;
+    toggle.checked = enabledForLogin || biometricState.pendingEnable;
+  }
+  const hint = $('#biometricLoginHint');
+  if (hint) {
+    hint.textContent = !biometricState.loaded
+      ? 'Verificando disponibilidade neste aparelho.'
+      : !biometricState.available
+        ? 'Biometria indisponível neste aparelho.'
+        : enabledForLogin
+          ? 'Ativa para este login.'
+          : biometricState.pendingEnable
+            ? 'Será ativada após entrar com a senha.'
+            : 'Ative e entre com a senha uma vez.';
+  }
   const loginButton = $('#biometricLoginBtn');
-  loginButton.hidden = !(biometricState.available && biometricState.enabled && biometricState.login === rememberedLogin);
+  if (loginButton) loginButton.hidden = !(biometricState.available && biometricState.enabled && biometricState.login === rememberedLogin);
 }
 
 async function handleBiometricToggle(enabled) {
   const plugin = nativeBiometricLogin();
   if (!plugin || !biometricState.available) {
+    biometricState.pendingEnable = false;
     renderBiometricSettings();
     return toast('A biometria não está disponível neste aparelho.', 'error');
   }
   if (!enabled) {
-    await plugin.disable();
-    biometricState = { ...biometricState, enabled: false, login: '' };
+    if (biometricState.enabled) await plugin.disable();
+    biometricState = { ...biometricState, enabled: false, login: '', pendingEnable: false, autoAttempted: true };
     renderBiometricSettings();
     toast('Entrada por biometria desativada.', 'good');
     return;
   }
-  if (!syncState.user) {
-    renderBiometricSettings();
-    return toast('Entre com sua senha antes de ativar a biometria.', 'error');
-  }
-  $('#biometricSetupLogin').value = syncState.user.login || '';
-  $('#biometricSetupPassword').value = '';
-  $('#biometricSetupError').hidden = true;
-  $('#biometricSetupError').textContent = '';
-  $('#biometricSetupDialog').showModal();
-  setTimeout(() => $('#biometricSetupPassword').focus(), 50);
-}
-
-async function saveBiometricSetup(event) {
-  event.preventDefault();
-  const plugin = nativeBiometricLogin();
-  const login = $('#biometricSetupLogin').value.trim().toLowerCase();
-  const password = $('#biometricSetupPassword').value.trim();
-  const button = $('#biometricSetupBtn');
-  button.disabled = true;
-  button.innerHTML = iconSvg('refresh-cw') + 'Verificando';
-  try {
-    const payload = await syncRequest('login', { login, pin: password });
-    applyAuthPayload(payload);
-    await plugin.enable({ login, password });
-    localStorage.setItem(LAST_LOGIN_KEY, login);
-    biometricState = { ...biometricState, available: true, enabled: true, login, loaded: true };
-    closeDialog('biometricSetupDialog');
-    renderBiometricSettings();
-    toast('Biometria ativada neste aparelho.', 'good');
-  } catch (error) {
-    $('#biometricSetupError').textContent = error.message || 'Não foi possível ativar a biometria.';
-    $('#biometricSetupError').hidden = false;
-  } finally {
-    button.disabled = false;
-    button.innerHTML = iconSvg('fingerprint') + 'Ativar';
-  }
+  biometricState.pendingEnable = true;
+  renderBiometricSettings();
+  $('#accessPasswordInput')?.focus();
 }
 
 function maybeStartBiometricLogin() {
@@ -1090,9 +1087,10 @@ async function initializeNativeNotifications() {
 
   const permission = await plugin.checkPermissions();
   nativeNotificationPermission = permission.display || 'prompt';
+  await requestExactAlarmAccess(false);
   if (nativeNotificationPermission === 'granted') {
     await ensureNativeNotificationChannel();
-    scheduleNativeReminderSync();
+    if (nativeExactAlarmPermission === 'granted') scheduleNativeReminderSync();
   }
   renderReminderSettings();
 }
@@ -1101,25 +1099,80 @@ async function ensureNativeNotificationChannel() {
   const plugin = nativeLocalNotifications();
   if (!plugin || window.Capacitor?.getPlatform?.() !== 'android' || typeof plugin.createChannel !== 'function') return;
   await plugin.createChannel({
-    id: 'alo_reminders',
-    name: 'Lembretes da casa',
-    description: 'Contas, tarefas e prioridades da lista da feira',
+    id: NATIVE_ALARM_CHANNEL_ID,
+    name: 'Alarmes do Alô Finanças',
+    description: 'Alarmes de contas, tarefas e prioridades da lista da feira',
     importance: 5,
     visibility: 1,
-    vibration: true
+    vibration: true,
+    lights: true,
+    lightColor: '#1D8B68'
   });
 }
 
-async function requestExactAlarmAccess() {
+async function requestExactAlarmAccess(askUser = false) {
   const plugin = nativeLocalNotifications();
-  if (!plugin || window.Capacitor?.getPlatform?.() !== 'android' || typeof plugin.checkExactNotificationSetting !== 'function') return;
+  if (!plugin || window.Capacitor?.getPlatform?.() !== 'android' || typeof plugin.checkExactNotificationSetting !== 'function') {
+    nativeExactAlarmPermission = 'granted';
+    return true;
+  }
   try {
-    const status = await plugin.checkExactNotificationSetting();
-    if (status?.exact_alarm !== 'granted' && typeof plugin.changeExactNotificationSetting === 'function') {
-      await plugin.changeExactNotificationSetting();
+    let status = await plugin.checkExactNotificationSetting();
+    nativeExactAlarmPermission = status?.exact_alarm || 'prompt';
+    if (askUser && nativeExactAlarmPermission !== 'granted' && typeof plugin.changeExactNotificationSetting === 'function') {
+      status = await plugin.changeExactNotificationSetting();
+      nativeExactAlarmPermission = status?.exact_alarm || 'denied';
     }
+    return nativeExactAlarmPermission === 'granted';
   } catch (error) {
     console.warn('Exact alarm permission', error);
+    nativeExactAlarmPermission = 'denied';
+    return false;
+  }
+}
+
+async function ensureNativeAlarmReady(askUser = false) {
+  const plugin = nativeLocalNotifications();
+  if (!plugin) return false;
+  let permission = await plugin.checkPermissions();
+  nativeNotificationPermission = permission.display || 'prompt';
+  if (askUser && nativeNotificationPermission !== 'granted') {
+    permission = await plugin.requestPermissions();
+    nativeNotificationPermission = permission.display || 'prompt';
+  }
+  if (nativeNotificationPermission !== 'granted') {
+    renderReminderSettings();
+    return false;
+  }
+  await ensureNativeNotificationChannel();
+  const exactReady = await requestExactAlarmAccess(askUser);
+  renderReminderSettings();
+  return exactReady;
+}
+
+async function testNativeAlarm() {
+  const plugin = nativeLocalNotifications();
+  if (!plugin) return toast('O teste de alarme está disponível somente no APK.', 'error');
+  try {
+    const ready = await ensureNativeAlarmReady(true);
+    if (!ready) return toast('Libere as permissões para testar o alarme.', 'error');
+    await plugin.cancel({ notifications: [{ id: NATIVE_TEST_ALARM_ID }] });
+    await plugin.schedule({
+      notifications: [{
+        id: NATIVE_TEST_ALARM_ID,
+        title: 'Alarme de teste',
+        body: 'Os alarmes do Alô Finanças estão funcionando.',
+        schedule: { at: new Date(Date.now() + 5000), allowWhileIdle: true },
+        channelId: NATIVE_ALARM_CHANNEL_ID,
+        smallIcon: 'ic_stat_home',
+        autoCancel: true,
+        extra: { view: 'settings', test: true }
+      }]
+    });
+    toast('Alarme agendado para daqui a 5 segundos. Pode fechar o app.', 'good');
+  } catch (error) {
+    console.warn('Alarm test', error);
+    toast(error.message || 'Não foi possível agendar o alarme de teste.', 'error');
   }
 }
 
@@ -1131,7 +1184,7 @@ function scheduleNativeReminderSync(delay = 700) {
 
 async function syncNativeReminders() {
   const plugin = nativeLocalNotifications();
-  if (!plugin || nativeNotificationPermission !== 'granted') return;
+  if (!plugin || nativeNotificationPermission !== 'granted' || nativeExactAlarmPermission !== 'granted') return;
   if (nativeReminderSyncBusy) {
     nativeReminderSyncQueued = true;
     return;
@@ -1191,8 +1244,9 @@ function buildNativeReminderNotifications() {
       title: entry.title,
       body: entry.body,
       schedule: { at: entry.at, allowWhileIdle: true },
-      channelId: 'alo_reminders',
+      channelId: NATIVE_ALARM_CHANNEL_ID,
       smallIcon: 'ic_stat_home',
+      autoCancel: true,
       extra: { view: entry.view }
     }));
 }
@@ -3844,12 +3898,38 @@ async function handleAccessLogin(event) {
   if ($('#accessLoginBtn').disabled) return;
   const login = $('#accessLoginInput').value.trim().toLowerCase();
   const password = $('#accessPasswordInput').value.trim();
+  const biometricPlugin = nativeBiometricLogin();
+  const wantsBiometric = $('#biometricLoginEnabled')?.checked === true;
+  const shouldEnableBiometric = wantsBiometric
+    && biometricPlugin
+    && biometricState.available
+    && (!biometricState.enabled || biometricState.login !== login);
   setLoginButtonBusy('accessLoginBtn', true);
   try {
     await authenticateSync(login, password);
+    let biometricActivated = false;
+    if (shouldEnableBiometric) {
+      try {
+        await biometricPlugin.enable({ login, password });
+        biometricState = {
+          ...biometricState,
+          available: true,
+          enabled: true,
+          login,
+          loaded: true,
+          pendingEnable: false,
+          autoAttempted: true
+        };
+        biometricActivated = true;
+      } catch (biometricError) {
+        biometricState.pendingEnable = false;
+        toast(biometricError.message || 'Login feito, mas não foi possível ativar a biometria.', 'error');
+      }
+    }
     $('#accessPasswordInput').value = '';
     closeDialog('loginDialog');
-    toast('Bem-vindo de volta.', 'good');
+    renderBiometricSettings();
+    toast(biometricActivated ? 'Login concluído e biometria ativada.' : 'Bem-vindo de volta.', 'good');
   } catch (error) {
     $('#accessLoginError').textContent = error.message || 'Não foi possível entrar.';
     $('#accessLoginError').hidden = false;
