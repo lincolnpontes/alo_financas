@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.21';
+const APP_VERSION = '1.0.22';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -8,6 +8,7 @@ const SYNC_USER_KEY = 'alo_financas_sync_user_v1';
 const SYNC_REVISION_KEY = 'alo_financas_sync_revision_v1';
 const LAST_LOGIN_KEY = 'alo_financas_last_login_v1';
 const REMINDER_META_KEY = 'alo_financas_reminder_meta_v1';
+const USER_REMINDER_SETTINGS_KEY = 'alo_financas_user_reminders_v1';
 const NATIVE_REMINDER_ID_MIN = 1900000000;
 const NATIVE_REMINDER_ID_MAX = 1900999999;
 const NATIVE_REMINDER_LIMIT = 320;
@@ -43,6 +44,7 @@ const ICONS = {
   download: '<path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path>',
   'download-cloud': '<path d="M17.5 19H8a6 6 0 1 1 1.1-11.9A7 7 0 0 1 22 11.5 4.5 4.5 0 0 1 17.5 19Z"></path><path d="M12 11v7"></path><path d="m9 15 3 3 3-3"></path>',
   'edit-3': '<path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path>',
+  fingerprint: '<path d="M12 11a1 1 0 0 0-1 1c0 2.6-.5 5.1-1.6 7.4"></path><path d="M16.5 12a4.5 4.5 0 0 0-9 0c0 3.3-.8 6.2-2.2 8.4"></path><path d="M20 12a8 8 0 0 0-16 0c0 1.8-.2 3.5-.7 5.1"></path><path d="M14.5 12c0 4-.8 7.2-2.1 9.5"></path><path d="M18 16.5c-.3 1.8-.8 3.5-1.5 5"></path>',
   'hand-coins': '<path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.5.7L3 17"></path><path d="m7 21 1.6-1.6c.4-.4 1-.6 1.5-.6H16c1 0 1.8-.4 2.4-1.1l3.2-4a2 2 0 0 0-3-2.6l-2.9 2.9"></path><path d="M2 16l6 6"></path><circle cx="16" cy="6" r="3"></circle><path d="M16 4.5v3"></path><path d="M14.5 6h3"></path>',
   info: '<circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path>',
   'key-round': '<path d="M2 18v3h3l8.1-8.1"></path><circle cx="16" cy="8" r="6"></circle><path d="M18 6h.01"></path>',
@@ -90,6 +92,7 @@ let state = {
   marketReorderTimer: null,
   taskFilter: 'pending',
   taskOwner: 'all',
+  valuesHidden: false,
   registryType: '',
   deferredInstall: null
 };
@@ -116,6 +119,8 @@ let nativeReminderSyncQueued = false;
 let nativeNotificationListenerReady = false;
 let pendingNativeReminderView = '';
 let nativeLocalNotificationsPlugin = null;
+let nativeBiometricLoginPlugin = null;
+let biometricState = { available: false, enabled: false, login: '', loaded: false, autoAttempted: false };
 
 if (dataCleanupPending) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
@@ -147,6 +152,7 @@ function init() {
   setInterval(cleanupExpiredBoughtItems, 60 * 60 * 1000);
   setInterval(checkDueNotifications, 5 * 60 * 1000);
   initializeNativeNotifications().catch(error => console.warn('Native notifications', error));
+  initializeBiometricLogin().catch(error => console.warn('Biometric login', error));
   if (!isNativeApp()) registerServiceWorker();
   prepareInstallPrompt();
   initializeAccess().catch(() => renderSyncStatus());
@@ -174,17 +180,20 @@ function bindEvents() {
   $('#flowEntryForm').addEventListener('submit', saveFlowEntryFromForm);
   $('#taskForm').addEventListener('submit', saveTaskFromForm);
   $('#productForm').addEventListener('submit', saveProductFromForm);
+  $('#productDetailsForm').addEventListener('submit', saveProductReferencePrice);
   $('#orderForm').addEventListener('submit', saveOrderFromForm);
   $('#quantityForm').addEventListener('submit', saveQuantityFromForm);
   $('#reminderSettingsForm').addEventListener('submit', saveReminderSettings);
   $('#syncUserForm').addEventListener('submit', saveSyncUserFromForm);
   $('#registryForm').addEventListener('submit', saveRegistryEntry);
   $('#accessLoginForm').addEventListener('submit', handleAccessLogin);
+  $('#biometricSetupForm').addEventListener('submit', saveBiometricSetup);
   $('#syncSetupForm').addEventListener('submit', handleSyncSetup);
   $('#syncLoginForm').addEventListener('submit', handleSyncLogin);
   $('#importFileInput').addEventListener('change', handleImportFile);
   $('#importProductsXlsxInput').addEventListener('change', importProductsXlsx);
   $('#loginDialog').addEventListener('cancel', event => event.preventDefault());
+  $('#biometricSetupDialog').addEventListener('close', renderBiometricSettings);
 }
 
 function handleDocumentClick(event) {
@@ -387,7 +396,10 @@ function handleDocumentClick(event) {
   if (button.id === 'importProductsXlsxBtn') $('#importProductsXlsxInput').click();
   if (button.id === 'notificationPermissionBtn') requestNotificationPermission();
   if (button.id === 'clearMarketFiltersBtn') clearMarketFilters();
+  if (button.id === 'clearTaskFiltersBtn') clearTaskFilters();
   if (button.id === 'clearBoughtBtn') clearBoughtItems();
+  if (button.id === 'dashboardPrivacyToggle' || button.id === 'financePrivacyToggle') togglePrivateValues();
+  if (button.id === 'biometricLoginBtn') runBiometricLogin();
   if (button.id === 'accessLoginBtn') {
     event.preventDefault();
     $('#accessLoginForm').requestSubmit();
@@ -452,6 +464,10 @@ function handleDocumentChange(event) {
     renderTasks();
   }
 
+  if (event.target.id === 'biometricLoginEnabled') {
+    handleBiometricToggle(event.target.checked);
+  }
+
   if (event.target.matches('[data-category-emoji]')) {
     updateMarketCategoryEmoji(event.target.dataset.categoryEmoji, event.target.value);
   }
@@ -496,6 +512,7 @@ function render() {
   renderTasks();
   renderSettings();
   renderSyncStatus();
+  updatePrivacyControls();
 }
 
 function renderDashboard() {
@@ -531,7 +548,7 @@ function renderDashboard() {
         const subtitle = isWeeklyExpense(item)
           ? `${weeklyHandledCount(item)}/${weeklyExpectedCountForItem(item)} semanas resolvidas`
           : `${statusLabel('expense', item.status)} - dia ${item.dueDay || '-'}`;
-        return stackRow(item.title, subtitle, item.amount == null ? 'A definir' : formatMoney(item.amount), 'calendar-days', tone);
+        return stackRow(item.title, subtitle, item.amount == null ? 'A definir' : formatMoney(item.amount), 'calendar-days', tone, item.amount != null);
       }).join('')
     : emptyState('Sem vencimentos abertos neste mês.');
 
@@ -611,6 +628,7 @@ function renderTasks() {
   if (![...ownerSelect.options].some(option => option.value === state.taskOwner)) state.taskOwner = 'all';
   ownerSelect.value = state.taskOwner;
   $('#taskStatusFilter').value = state.taskFilter;
+  $('#clearTaskFiltersBtn').disabled = state.taskFilter === 'all' && state.taskOwner === 'all';
 
   const items = visible(db.tasks)
     .filter(item => state.taskFilter === 'all' || (state.taskFilter === 'completed' ? item.status === 'completed' : item.status !== 'completed'))
@@ -737,10 +755,11 @@ function renderSettings() {
   renderReminderSettings();
   renderSyncUsers();
   renderAudit();
+  renderBiometricSettings();
 }
 
 function renderReminderSettings() {
-  const reminders = db.settings.reminders;
+  const reminders = currentUserReminderSettings();
   const fieldMap = {
     expenses: {
       enabled: 'expenseRemindersEnabled',
@@ -787,16 +806,16 @@ function renderReminderSettings() {
 
 function saveReminderSettings(event) {
   event.preventDefault();
-  db.settings.reminders = {
+  const reminders = {
     expenses: readReminderProfile('expense', { daysBefore: true }),
     tasks: readReminderProfile('task', { daysBefore: true }),
     market: readReminderProfile('market', { delayHours: true })
   };
-  const enabledCount = Object.values(db.settings.reminders).filter(profile => profile.enabled).length;
-  addAudit('alterou', 'os lembretes', enabledCount ? `${enabledCount} configurado(s)` : 'Desativados');
-  saveData();
+  saveCurrentUserReminderSettings(reminders);
+  renderReminderSettings();
+  scheduleNativeReminderSync(0);
   checkDueNotifications();
-  toast('Lembretes atualizados.', 'good');
+  toast(`Lembretes de ${syncState.user?.name || syncState.user?.login || 'este usuário'} atualizados.`, 'good');
 }
 
 function readReminderProfile(prefix, options = {}) {
@@ -846,7 +865,7 @@ async function requestNotificationPermission() {
 }
 
 async function checkDueNotifications() {
-  const reminders = db.settings.reminders;
+  const reminders = currentUserReminderSettings();
   if (nativeLocalNotifications()) {
     if (!document.body.classList.contains('app-locked')) scheduleNativeReminderSync();
     return;
@@ -868,7 +887,7 @@ async function checkDueNotifications() {
           const body = isWeeklyExpense(item)
             ? `${item.title} - ${formatMoney(item.weeklyAmount)} por semana - ${weeklyHandledCount(item)}/${weeklyExpectedCountForItem(item)} resolvidas`
             : `${item.title} - ${formatMoney(item.amount)} - dia ${String(item.dueDay || 1).padStart(2, '0')}`;
-          candidates.push({ key: `expense:${item.id}`, title: 'Conta próxima do vencimento', body, view: 'finances', frequencyHours: expenseProfile.frequencyHours });
+          candidates.push({ key: `${reminderUserKey()}:expense:${item.id}`, title: 'Conta próxima do vencimento', body, view: 'finances', frequencyHours: expenseProfile.frequencyHours });
         }
       });
   }
@@ -880,7 +899,7 @@ async function checkDueNotifications() {
       .forEach(item => {
         const dueAt = taskDueTimestamp(item);
         if (dueAt && now >= dueAt - daysBeforeMs) {
-          candidates.push({ key: `task:${item.id}`, title: 'Tarefa próxima do prazo', body: `${item.title} - ${item.owner || 'Todos'} - ${dateOrDash(item.dueDate)}`, view: 'tasks', frequencyHours: taskProfile.frequencyHours });
+          candidates.push({ key: `${reminderUserKey()}:task:${item.id}`, title: 'Tarefa próxima do prazo', body: `${item.title} - ${item.owner || 'Todos'} - ${dateOrDash(item.dueDate)}`, view: 'tasks', frequencyHours: taskProfile.frequencyHours });
         }
       });
   }
@@ -890,7 +909,7 @@ async function checkDueNotifications() {
     visible(db.pantry.list)
       .filter(item => item.status !== 'bought' && item.priority === 'high')
       .filter(item => now >= Number(item.priorityAt || item.updatedAt || item.createdAt || 0) + delayMs)
-      .forEach(item => candidates.push({ key: `market:${item.id}`, title: 'Prioridade alta na feira', body: `${item.name} - ${formatQuantity(item.qty || 1)} ${item.unit || 'un'}`, view: 'market', frequencyHours: marketProfile.frequencyHours }));
+      .forEach(item => candidates.push({ key: `${reminderUserKey()}:market:${item.id}`, title: 'Prioridade alta na feira', body: `${item.name} - ${formatQuantity(item.qty || 1)} ${item.unit || 'un'}`, view: 'market', frequencyHours: marketProfile.frequencyHours }));
   }
 
   for (const candidate of candidates) {
@@ -919,6 +938,140 @@ function nativeLocalNotifications() {
     nativeLocalNotificationsPlugin = window.Capacitor.registerPlugin('LocalNotifications');
   }
   return nativeLocalNotificationsPlugin || window.Capacitor?.Plugins?.LocalNotifications || null;
+}
+
+function nativeBiometricLogin() {
+  if (!isNativeApp() || window.Capacitor?.getPlatform?.() !== 'android') return null;
+  if (!nativeBiometricLoginPlugin && typeof window.Capacitor?.registerPlugin === 'function') {
+    nativeBiometricLoginPlugin = window.Capacitor.registerPlugin('BiometricLogin');
+  }
+  return nativeBiometricLoginPlugin;
+}
+
+async function initializeBiometricLogin() {
+  const plugin = nativeBiometricLogin();
+  if (!plugin) {
+    biometricState = { ...biometricState, available: false, enabled: false, loaded: true };
+    renderBiometricSettings();
+    return;
+  }
+  const status = await plugin.getStatus();
+  biometricState = {
+    ...biometricState,
+    available: status.available === true,
+    enabled: status.enabled === true,
+    login: String(status.login || '').toLowerCase(),
+    loaded: true
+  };
+  renderBiometricSettings();
+  maybeStartBiometricLogin();
+}
+
+function renderBiometricSettings() {
+  const toggle = $('#biometricLoginEnabled');
+  const pill = $('#biometricStatusPill');
+  const currentLogin = String(syncState.user?.login || '').toLowerCase();
+  const enabledForCurrentUser = biometricState.enabled && biometricState.login === currentLogin;
+  toggle.disabled = !biometricState.available || !syncState.user;
+  toggle.checked = enabledForCurrentUser;
+  pill.textContent = !biometricState.loaded
+    ? 'Verificando'
+    : !biometricState.available
+      ? 'Indisponível'
+      : enabledForCurrentUser
+        ? 'Ativa'
+        : biometricState.enabled ? 'Outro usuário' : 'Desativada';
+  pill.className = `status-pill${enabledForCurrentUser ? ' good' : ''}`;
+
+  const rememberedLogin = String(localStorage.getItem(LAST_LOGIN_KEY) || '').toLowerCase();
+  const loginButton = $('#biometricLoginBtn');
+  loginButton.hidden = !(biometricState.available && biometricState.enabled && biometricState.login === rememberedLogin);
+}
+
+async function handleBiometricToggle(enabled) {
+  const plugin = nativeBiometricLogin();
+  if (!plugin || !biometricState.available) {
+    renderBiometricSettings();
+    return toast('A biometria não está disponível neste aparelho.', 'error');
+  }
+  if (!enabled) {
+    await plugin.disable();
+    biometricState = { ...biometricState, enabled: false, login: '' };
+    renderBiometricSettings();
+    toast('Entrada por biometria desativada.', 'good');
+    return;
+  }
+  if (!syncState.user) {
+    renderBiometricSettings();
+    return toast('Entre com sua senha antes de ativar a biometria.', 'error');
+  }
+  $('#biometricSetupLogin').value = syncState.user.login || '';
+  $('#biometricSetupPassword').value = '';
+  $('#biometricSetupError').hidden = true;
+  $('#biometricSetupError').textContent = '';
+  $('#biometricSetupDialog').showModal();
+  setTimeout(() => $('#biometricSetupPassword').focus(), 50);
+}
+
+async function saveBiometricSetup(event) {
+  event.preventDefault();
+  const plugin = nativeBiometricLogin();
+  const login = $('#biometricSetupLogin').value.trim().toLowerCase();
+  const password = $('#biometricSetupPassword').value.trim();
+  const button = $('#biometricSetupBtn');
+  button.disabled = true;
+  button.innerHTML = iconSvg('refresh-cw') + 'Verificando';
+  try {
+    const payload = await syncRequest('login', { login, pin: password });
+    applyAuthPayload(payload);
+    await plugin.enable({ login, password });
+    localStorage.setItem(LAST_LOGIN_KEY, login);
+    biometricState = { ...biometricState, available: true, enabled: true, login, loaded: true };
+    closeDialog('biometricSetupDialog');
+    renderBiometricSettings();
+    toast('Biometria ativada neste aparelho.', 'good');
+  } catch (error) {
+    $('#biometricSetupError').textContent = error.message || 'Não foi possível ativar a biometria.';
+    $('#biometricSetupError').hidden = false;
+  } finally {
+    button.disabled = false;
+    button.innerHTML = iconSvg('fingerprint') + 'Ativar';
+  }
+}
+
+function maybeStartBiometricLogin() {
+  if (!$('#loginDialog').open || biometricState.autoAttempted || !biometricState.loaded) return;
+  const rememberedLogin = String(localStorage.getItem(LAST_LOGIN_KEY) || '').toLowerCase();
+  if (!biometricState.available || !biometricState.enabled || biometricState.login !== rememberedLogin) return;
+  biometricState.autoAttempted = true;
+  setTimeout(() => runBiometricLogin(true), 120);
+}
+
+async function runBiometricLogin(automatic = false) {
+  const plugin = nativeBiometricLogin();
+  if (!plugin || !biometricState.enabled) return;
+  const button = $('#biometricLoginBtn');
+  button.disabled = true;
+  button.innerHTML = iconSvg('refresh-cw') + 'Confirmando';
+  try {
+    const credentials = await plugin.authenticate();
+    const login = String(credentials.login || '').trim().toLowerCase();
+    const password = String(credentials.password || '');
+    $('#accessLoginInput').value = login;
+    setLoginButtonBusy('accessLoginBtn', true);
+    await authenticateSync(login, password);
+    closeDialog('loginDialog');
+    toast('Entrada por biometria concluída.', 'good');
+  } catch (error) {
+    if (!automatic && !/cancel|senha/i.test(error.message || '')) {
+      $('#accessLoginError').textContent = error.message || 'Não foi possível usar a biometria.';
+      $('#accessLoginError').hidden = false;
+    }
+  } finally {
+    button.disabled = false;
+    button.innerHTML = iconSvg('fingerprint') + 'Entrar com biometria';
+    setLoginButtonBusy('accessLoginBtn', false);
+  }
 }
 
 async function initializeNativeNotifications() {
@@ -1008,7 +1161,7 @@ async function syncNativeReminders() {
 function buildNativeReminderNotifications() {
   const now = Date.now();
   const horizon = now + NATIVE_REMINDER_HORIZON_DAYS * 24 * 60 * 60 * 1000;
-  const reminders = db.settings.reminders || {};
+  const reminders = currentUserReminderSettings();
   const definitions = [
     { type: 'expenses', profile: reminders.expenses, view: 'finances', title: 'Contas para conferir', sources: nativeExpenseReminderSources() },
     { type: 'tasks', profile: reminders.tasks, view: 'tasks', title: 'Tarefas para conferir', sources: nativeTaskReminderSources() },
@@ -1045,7 +1198,7 @@ function buildNativeReminderNotifications() {
 }
 
 function nativeExpenseReminderSources() {
-  const profile = db.settings.reminders?.expenses || {};
+  const profile = currentUserReminderSettings().expenses || {};
   const leadTime = Number(profile.daysBefore || 0) * 24 * 60 * 60 * 1000;
   return visible(db.finances.expenses)
     .filter(item => item.status !== 'paid' && !isCardExpense(item))
@@ -1054,7 +1207,7 @@ function nativeExpenseReminderSources() {
 }
 
 function nativeTaskReminderSources() {
-  const profile = db.settings.reminders?.tasks || {};
+  const profile = currentUserReminderSettings().tasks || {};
   const leadTime = Number(profile.daysBefore || 0) * 24 * 60 * 60 * 1000;
   return visible(db.tasks)
     .filter(item => item.status !== 'completed')
@@ -1063,7 +1216,7 @@ function nativeTaskReminderSources() {
 }
 
 function nativeMarketReminderSources() {
-  const profile = db.settings.reminders?.market || {};
+  const profile = currentUserReminderSettings().market || {};
   const delay = Number(profile.delayHours || 0) * 60 * 60 * 1000;
   return visible(db.pantry.list)
     .filter(item => item.status !== 'bought' && item.priority === 'high')
@@ -1249,7 +1402,7 @@ function metric(label, value, helper, icon, tone = '', currency = true) {
 }
 
 function metricEmoji(label, value, helper, emoji, tone = '', currency = true, navigation = {}) {
-  const display = currency ? formatMoney(value) : String(value);
+  const display = privateValue(currency ? formatMoney(value) : String(value));
   const navigationAttrs = navigation.view
     ? `data-view-jump="${escapeAttr(navigation.view)}" data-view-target="${escapeAttr(navigation.target || '')}"${navigation.expenseFilter ? ` data-expense-filter="${escapeAttr(navigation.expenseFilter)}"` : ''}`
     : '';
@@ -1285,7 +1438,7 @@ function renderAudit() {
 }
 
 function summaryTile(label, value) {
-  return `<article class="summary-tile"><span>${escapeHTML(label)}</span><strong>${escapeHTML(formatMoney(value))}</strong></article>`;
+  return `<article class="summary-tile"><span>${escapeHTML(label)}</span><strong>${escapeHTML(privateValue(formatMoney(value)))}</strong></article>`;
 }
 
 function miniStat(label, value) {
@@ -1293,7 +1446,8 @@ function miniStat(label, value) {
   return `<article class="mini-stat"><span>${escapeHTML(label)}</span><strong>${escapeHTML(display)}</strong></article>`;
 }
 
-function stackRow(title, subtitle, right, icon, tone = '') {
+function stackRow(title, subtitle, right, icon, tone = '', sensitive = false) {
+  const rightValue = sensitive ? privateValue(right) : right;
   return `
     <div class="stack-row ${tone ? `stack-${escapeAttr(tone)}` : ''}">
       <span class="row-icon ${tone}">${iconSvg(icon)}</span>
@@ -1301,7 +1455,7 @@ function stackRow(title, subtitle, right, icon, tone = '') {
         <strong>${escapeHTML(title)}</strong>
         <small>${escapeHTML(subtitle)}</small>
       </div>
-      <div class="row-amount">${escapeHTML(right || '')}</div>
+      <div class="row-amount">${escapeHTML(rightValue || '')}</div>
     </div>
   `;
 }
@@ -1319,7 +1473,7 @@ function financeRow(type, item) {
     ? `<span class="badge ${expenseState}">${expenseState === 'paid' ? 'Pago' : expenseState === 'overdue' ? 'Vencida' : 'Pendente'}</span>`
     : statusBadge(type, item.status);
   const amount = type === 'account' ? item.balance : isFlow ? remainingFlowAmount(type, item) : item.amount;
-  const amountDisplay = amount == null ? 'Definir valor' : formatMoney(amount);
+  const amountDisplay = amount == null ? 'Definir valor' : privateValue(formatMoney(amount));
   const amountMarkup = amount == null && (type === 'expense' || type === 'income')
     ? `<button class="amount-empty amount-empty-button" type="button" data-define-amount="${escapeAttr(type)}" data-id="${escapeAttr(item.id)}">${escapeHTML(amountDisplay)}</button>`
     : `<span class="${amount == null ? 'amount-empty' : ''}">${escapeHTML(amountDisplay)}</span>`;
@@ -1390,7 +1544,7 @@ function rowConfig(type, item) {
     if (isWeeklyExpense(item)) {
       return {
         title: item.title,
-        subtitle: `Toda ${weekdayLabel(item.weeklyDay).toLowerCase()} - ${item.paymentMethod || 'Não informado'}`,
+        subtitle: `${weeklyNextPaymentLabel(item)} - ${item.paymentMethod || 'Não informado'}`,
         icon: 'receipt',
         tone: expenseVisualState(item),
         cycleTitle: 'Registrar semana paga',
@@ -1477,6 +1631,21 @@ function weeklyOccurrenceDays(monthValue, weekday) {
     if (new Date(year, month - 1, day).getDay() === Number(weekday)) days.push(day);
   }
   return days;
+}
+
+function weeklyNextPaymentLabel(item) {
+  const [year, month] = String(item?.month || currentMonth()).split('-').map(Number);
+  if (!year || !month) return `Dia ${String(item?.dueDay || 1).padStart(2, '0')}`;
+  const handled = weeklyHandledCount(item);
+  const days = weeklyOccurrenceDays(item.month, item.weeklyDay);
+  let date;
+  if (days[handled]) {
+    date = new Date(year, month - 1, days[handled]);
+  } else {
+    date = new Date(year, month, 1);
+    while (date.getDay() !== Number(item.weeklyDay ?? 1)) date.setDate(date.getDate() + 1);
+  }
+  return `Dia ${String(date.getDate()).padStart(2, '0')} (${weekdayLabel(date.getDay()).toLowerCase()})`;
 }
 
 function weeklyExpectedCountForItem(item) {
@@ -1612,7 +1781,12 @@ function productHints(product) {
 }
 
 function productHasDetails(product) {
-  return Boolean(String(product?.goodBrands || '').trim() || String(product?.badBrands || '').trim() || String(product?.notes || '').trim());
+  return Boolean(
+    String(product?.goodBrands || '').trim()
+    || String(product?.badBrands || '').trim()
+    || String(product?.notes || '').trim()
+    || Number(product?.referencePrice || 0) > 0
+  );
 }
 
 function productEmoji(product) {
@@ -1703,7 +1877,8 @@ function openRecordDialog(type, id = '') {
   $('#recordType').value = type;
   $('#recordId').value = id;
   $('#recordName').value = item?.title || item?.name || item?.person || '';
-  const recurrence = item?.recurrenceId ? db.finances.recurring.find(entry => entry.id === item.recurrenceId) : null;
+  const recurrenceRecord = item?.recurrenceId ? db.finances.recurring.find(entry => entry.id === item.recurrenceId) : null;
+  const recurrence = recurrenceRecord ? recurrenceTemplateForMonth(recurrenceRecord, item?.month || state.month) : null;
   const frequency = type === 'expense' ? recurrence?.frequency || item?.recurrenceFrequency || 'monthly' : 'monthly';
   const recordAmount = type === 'account' ? item?.balance : frequency === 'weekly' ? item?.weeklyAmount : item?.amount;
   $('#recordAmount').value = recordAmount == null ? '' : formatNumberInput(recordAmount);
@@ -1739,7 +1914,7 @@ function openRecordDialog(type, id = '') {
   $('#recordName').focus();
 }
 
-function saveRecordFromForm(event) {
+async function saveRecordFromForm(event) {
   event.preventDefault();
   const type = $('#recordType').value;
   const config = recordConfig(type);
@@ -1748,10 +1923,16 @@ function saveRecordFromForm(event) {
   const now = Date.now();
   const existing = collection.find(item => item.id === id);
   const isNew = !existing;
+  const existingRecurrence = existing?.recurrenceId
+    ? db.finances.recurring.find(entry => entry.id === existing.recurrenceId && !entry.deletedAt)
+    : null;
   const rawAmount = $('#recordAmount').value.trim();
   const amount = parseMoney(rawAmount);
   if (!rawAmount) return toast('Informe o valor.', 'error');
   if (!Number.isFinite(amount)) return toast('Informe um valor válido.', 'error');
+  const applyToFuture = existingRecurrence && (type === 'expense' || type === 'income')
+    ? await confirmFutureRecordChange(type, existing)
+    : false;
 
   let item = existing || { id, createdAt: now };
   item.updatedAt = now;
@@ -1805,10 +1986,12 @@ function saveRecordFromForm(event) {
       const recurrenceId = item.recurrenceId || uid('recurring');
       item.recurrenceId = recurrenceId;
       item.recurring = true;
-      upsertRecurrence(recurrenceId, type, item, $('#recordKeepValue').checked);
+      if (!existingRecurrence || applyToFuture) {
+        upsertRecurrence(recurrenceId, type, item, $('#recordKeepValue').checked);
+      }
     } else {
       item.recurring = false;
-      if (item.recurrenceId) {
+      if (item.recurrenceId && (!existingRecurrence || applyToFuture)) {
         const recurrence = db.finances.recurring.find(entry => entry.id === item.recurrenceId);
         if (recurrence) {
           recurrence.active = false;
@@ -1820,10 +2003,73 @@ function saveRecordFromForm(event) {
 
   if (type === 'receivable' || type === 'debt') updateFlowRecordStatus(type, item);
   if (!existing) collection.push(item);
+  const updatedFutureCount = applyToFuture ? applyRecordToFutureMonths(type, item) : 0;
   addAudit(isNew ? 'cadastrou' : 'alterou', recordEntityLabel(type), recordDisplayName(type, item));
+  if (updatedFutureCount) addAudit('aplicou aos meses posteriores', recordEntityLabel(type), `${recordDisplayName(type, item)} - ${updatedFutureCount} registro(s)`);
   saveData();
   closeDialog('recordDialog');
   toast('Registro salvo.', 'good');
+}
+
+function confirmFutureRecordChange(type, item) {
+  const dialog = $('#futureRecordDialog');
+  const label = type === 'income' ? 'receita' : 'despesa';
+  $('#futureRecordMessage').textContent = `A ${label} "${item.title}" pertence a uma recorrência. Esta alteração deve valer somente em ${monthLabel(item.month)} ou também nos meses seguintes?`;
+  return new Promise(resolve => {
+    let finished = false;
+    const finish = applyToFuture => {
+      if (finished) return;
+      finished = true;
+      dialog.close();
+      resolve(applyToFuture);
+    };
+    $('#futureOnlyBtn').onclick = () => finish(false);
+    $('#futureApplyBtn').onclick = () => finish(true);
+    dialog.oncancel = event => {
+      event.preventDefault();
+      finish(false);
+    };
+    dialog.showModal();
+  });
+}
+
+function applyRecordToFutureMonths(type, source) {
+  if (!source?.recurrenceId || !['expense', 'income'].includes(type)) return 0;
+  const now = Date.now();
+  const futureItems = visible(getCollection(type))
+    .filter(item => item.recurrenceId === source.recurrenceId && item.month > source.month);
+  futureItems.forEach(item => {
+    item.title = source.title;
+    item.owner = source.owner;
+    item.category = source.category;
+    item.accountId = source.accountId;
+    item.notes = source.notes;
+    item.recurring = source.recurring;
+    if (type === 'income') {
+      item.amount = source.amount;
+      item.day = source.day;
+    } else {
+      item.paymentMethod = source.paymentMethod;
+      item.recurrenceFrequency = source.recurrenceFrequency;
+      if (isWeeklyExpense(source)) {
+        item.weeklyDay = source.weeklyDay;
+        item.weeklyAmount = source.weeklyAmount;
+        item.weeklyPayments = Array.isArray(item.weeklyPayments) ? item.weeklyPayments : [];
+        const savedStatus = item.status;
+        const savedStatusAt = item.statusUpdatedAt;
+        const savedRevision = item.statusRevision;
+        reconcileWeeklyExpenseStatus(item);
+        item.status = savedStatus;
+        item.statusUpdatedAt = savedStatusAt;
+        item.statusRevision = savedRevision;
+      } else {
+        item.amount = source.amount;
+        item.dueDay = source.dueDay;
+      }
+    }
+    item.updatedAt = now;
+  });
+  return futureItems.length;
 }
 
 function deleteCurrentRecord() {
@@ -1875,13 +2121,17 @@ function openQuickAmountDialog(type, id) {
   }, 0);
 }
 
-function saveQuickAmountFromForm(event) {
+async function saveQuickAmountFromForm(event) {
   event.preventDefault();
   const type = $('#quickAmountType').value;
   const id = $('#quickAmountId').value;
   const item = getCollection(type)?.find(entry => entry.id === id && !entry.deletedAt);
   const amount = parseMoney($('#quickAmountInput').value);
   if (!item || !(amount > 0)) return toast('Informe um valor maior que zero.', 'error');
+  const recurrence = item.recurrenceId
+    ? db.finances.recurring.find(entry => entry.id === item.recurrenceId && !entry.deletedAt)
+    : null;
+  const applyToFuture = recurrence ? await confirmFutureRecordChange(type, item) : false;
   const now = Date.now();
   if (type === 'expense' && isWeeklyExpense(item)) {
     item.weeklyAmount = roundMoney(amount);
@@ -1890,6 +2140,10 @@ function saveQuickAmountFromForm(event) {
     item.amount = roundMoney(amount);
   }
   item.updatedAt = now;
+  if (applyToFuture) {
+    upsertRecurrence(item.recurrenceId, type, item, recurrence.keepValue !== false);
+    applyRecordToFutureMonths(type, item);
+  }
   addAudit('definiu o valor de', recordEntityLabel(type), `${recordDisplayName(type, item)} - ${formatMoney(amount)}`);
   saveData();
   closeDialog('quickAmountDialog');
@@ -1929,9 +2183,9 @@ function renderFlowDialog() {
   const settled = settledFlowAmount(type, item);
   const remaining = remainingFlowAmount(type, item);
 
-  $('#flowTotalAmount').textContent = formatMoney(total);
-  $('#flowSettledAmount').textContent = formatMoney(settled);
-  $('#flowRemainingAmount').textContent = formatMoney(remaining);
+  $('#flowTotalAmount').textContent = privateValue(formatMoney(total));
+  $('#flowSettledAmount').textContent = privateValue(formatMoney(settled));
+  $('#flowRemainingAmount').textContent = privateValue(formatMoney(remaining));
   $('#flowHistoryCount').textContent = String(entries.length);
   $('#flowDecreaseDirection').disabled = remaining <= 0;
   if (remaining <= 0 && $('#flowDecreaseDirection').checked) $('#flowIncreaseDirection').checked = true;
@@ -1951,7 +2205,7 @@ function renderFlowDialog() {
           <strong>${escapeHTML(meta.historyLabel)}</strong>
           <small>${escapeHTML(dateOrDash(entry.date))}${entry.legacy ? ' · registro anterior' : ''}</small>
         </div>
-        <strong class="flow-history-amount">${escapeHTML(meta.sign)} ${escapeHTML(formatMoney(entry.amount))}</strong>
+        <strong class="flow-history-amount">${escapeHTML(privateValue(`${meta.sign} ${formatMoney(entry.amount)}`))}</strong>
         <button class="icon-btn flow-delete-entry" type="button" data-delete-flow-entry="${escapeAttr(entry.id)}" title="Excluir lançamento" aria-label="Excluir lançamento">${iconSvg('trash-2')}</button>
       </div>
     `;
@@ -2194,9 +2448,11 @@ function saveProductFromForm(event) {
 
 function openProductDetails(productId) {
   const product = db.pantry.products.find(item => item.id === productId && !item.deletedAt);
-  if (!product || !productHasDetails(product)) return;
+  if (!product) return;
+  $('#productDetailsId').value = product.id;
   $('#productDetailsTitle').textContent = product.name;
   $('#productDetailsCategory').textContent = `${productEmoji(product)} ${product.category || 'Mercado'}`;
+  $('#productDetailsPrice').value = Number(product.referencePrice || 0) > 0 ? formatNumberInput(product.referencePrice) : '';
   const detailFields = [
     { wrap: $('#productDetailsGoodBrandsWrap'), value: product.goodBrands, full: false },
     { wrap: $('#productDetailsBadBrandsWrap'), value: product.badBrands, full: false },
@@ -2211,6 +2467,22 @@ function openProductDetails(productId) {
   $('#productDetailsBadBrands').textContent = product.badBrands || '';
   $('#productDetailsNotes').textContent = product.notes || '';
   $('#productDetailsDialog').showModal();
+  setTimeout(() => $('#productDetailsPrice').focus(), 50);
+}
+
+function saveProductReferencePrice(event) {
+  event.preventDefault();
+  const product = db.pantry.products.find(item => item.id === $('#productDetailsId').value && !item.deletedAt);
+  if (!product) return;
+  const rawValue = $('#productDetailsPrice').value.trim();
+  const value = rawValue ? parseMoney(rawValue) : null;
+  if (rawValue && (!Number.isFinite(value) || value < 0)) return toast('Informe um valor válido.', 'error');
+  product.referencePrice = value == null ? null : roundMoney(value);
+  product.updatedAt = Date.now();
+  addAudit('alterou o valor de referência de', 'produto', `${product.name}${value == null ? '' : ` - ${formatMoney(value)}`}`);
+  saveData();
+  closeDialog('productDetailsDialog');
+  toast(value == null ? 'Valor removido.' : 'Valor de referência salvo.', 'good');
 }
 
 async function exportProductsXlsx() {
@@ -2840,6 +3112,33 @@ function clearMarketFilters() {
   renderMarket();
 }
 
+function clearTaskFilters() {
+  state.taskFilter = 'all';
+  state.taskOwner = 'all';
+  renderTasks();
+}
+
+function togglePrivateValues() {
+  state.valuesHidden = !state.valuesHidden;
+  renderDashboard();
+  renderFinances();
+  updatePrivacyControls();
+}
+
+function updatePrivacyControls() {
+  ['dashboardPrivacyToggle', 'financePrivacyToggle'].forEach(id => {
+    const button = document.getElementById(id);
+    if (!button) return;
+    button.classList.toggle('is-hidden', state.valuesHidden);
+    button.title = state.valuesHidden ? 'Mostrar valores' : 'Ocultar valores';
+    button.setAttribute('aria-label', button.title);
+  });
+}
+
+function privateValue(value) {
+  return state.valuesHidden ? '•••••' : String(value ?? '');
+}
+
 function cycleRecordStatus(type, id) {
   if (!['expense', 'income'].includes(type)) return;
   const item = getCollection(type).find(entry => entry.id === id);
@@ -2894,7 +3193,7 @@ function upsertRecurrence(id, type, item, keepValue) {
     recurrence = { id, type, startMonth: state.month, createdAt: now };
     db.finances.recurring.push(recurrence);
   }
-  Object.assign(recurrence, {
+  const template = {
     type,
     title: item.title,
     amount: isWeeklyExpense(item) ? item.weeklyAmount : item.amount,
@@ -2907,11 +3206,45 @@ function upsertRecurrence(id, type, item, keepValue) {
     accountId: item.accountId,
     notes: item.notes,
     paymentMethod: item.paymentMethod,
-    keepValue: keepValue === true,
+    keepValue: keepValue === true
+  };
+  if (!Array.isArray(recurrence.versions) || !recurrence.versions.length) {
+    recurrence.versions = [{
+      effectiveMonth: recurrence.startMonth || item.month || state.month,
+      type: recurrence.type,
+      title: recurrence.title,
+      amount: recurrence.amount,
+      frequency: recurrence.frequency,
+      weeklyDay: recurrence.weeklyDay,
+      dueDay: recurrence.dueDay,
+      day: recurrence.day,
+      owner: recurrence.owner,
+      category: recurrence.category,
+      accountId: recurrence.accountId,
+      notes: recurrence.notes,
+      paymentMethod: recurrence.paymentMethod,
+      keepValue: recurrence.keepValue !== false
+    }];
+  }
+  const effectiveMonth = item.month || state.month;
+  recurrence.versions = recurrence.versions.filter(version => version.effectiveMonth !== effectiveMonth);
+  recurrence.versions.push({ effectiveMonth, ...template });
+  recurrence.versions.sort((a, b) => String(a.effectiveMonth).localeCompare(String(b.effectiveMonth)));
+  const latestTemplate = { ...recurrence.versions[recurrence.versions.length - 1] };
+  delete latestTemplate.effectiveMonth;
+  Object.assign(recurrence, latestTemplate, {
     active: true,
     updatedAt: now,
     deletedAt: 0
   });
+}
+
+function recurrenceTemplateForMonth(recurrence, month) {
+  const versions = Array.isArray(recurrence?.versions) ? recurrence.versions : [];
+  const version = versions
+    .filter(entry => entry?.effectiveMonth && entry.effectiveMonth <= month)
+    .sort((a, b) => String(b.effectiveMonth).localeCompare(String(a.effectiveMonth)))[0];
+  return version ? { ...recurrence, ...version } : recurrence;
 }
 
 function ensureRecurringForMonth() {
@@ -2921,37 +3254,38 @@ function ensureRecurringForMonth() {
     const alreadyCreated = collection.some(item => item.recurrenceId === recurrence.id && item.month === state.month);
     if (alreadyCreated) return;
     const now = Date.now();
-    const weekly = recurrence.type === 'expense' && recurrence.frequency === 'weekly';
-    const recurringAmount = recurrence.keepValue === false ? null : recurrence.amount;
+    const template = recurrenceTemplateForMonth(recurrence, state.month);
+    const weekly = template.type === 'expense' && template.frequency === 'weekly';
+    const recurringAmount = template.keepValue === false ? null : template.amount;
     const item = {
       id: uid(recurrence.type),
       recurrenceId: recurrence.id,
       recurring: true,
-      title: recurrence.title,
+      title: template.title,
       amount: recurringAmount,
       month: state.month,
-      owner: recurrence.owner,
-      category: recurrence.category,
-      accountId: recurrence.accountId,
-      notes: recurrence.notes,
-      paymentMethod: recurrence.paymentMethod,
-      status: recurrence.type === 'income' ? 'expected' : 'pending',
+      owner: template.owner,
+      category: template.category,
+      accountId: template.accountId,
+      notes: template.notes,
+      paymentMethod: template.paymentMethod,
+      status: template.type === 'income' ? 'expected' : 'pending',
       statusUpdatedAt: now,
       statusRevision: 1,
       createdAt: now,
       updatedAt: now,
       deletedAt: 0
     };
-    if (recurrence.type === 'income') item.day = recurrence.day;
+    if (template.type === 'income') item.day = template.day;
     else if (weekly) {
       item.recurrenceFrequency = 'weekly';
-      item.weeklyDay = Number(recurrence.weeklyDay ?? 1);
+      item.weeklyDay = Number(template.weeklyDay ?? 1);
       item.weeklyAmount = recurringAmount;
       item.weeklyPayments = [];
       reconcileWeeklyExpenseStatus(item);
     } else {
       item.recurrenceFrequency = 'monthly';
-      item.dueDay = recurrence.dueDay;
+      item.dueDay = template.dueDay;
     }
     collection.push(item);
     created.push(item.title);
@@ -3272,6 +3606,23 @@ function defaultReminderSettings() {
   };
 }
 
+function reminderUserKey() {
+  return String(syncState.user?.login || localStorage.getItem(LAST_LOGIN_KEY) || 'local').trim().toLowerCase() || 'local';
+}
+
+function currentUserReminderSettings() {
+  const settingsByUser = readJSON(localStorage.getItem(USER_REMINDER_SETTINGS_KEY), {});
+  const stored = settingsByUser && typeof settingsByUser === 'object' ? settingsByUser[reminderUserKey()] : null;
+  return normalizeReminderSettings(stored || db.settings?.reminders || defaultReminderSettings());
+}
+
+function saveCurrentUserReminderSettings(settings) {
+  const settingsByUser = readJSON(localStorage.getItem(USER_REMINDER_SETTINGS_KEY), {});
+  const next = settingsByUser && typeof settingsByUser === 'object' ? settingsByUser : {};
+  next[reminderUserKey()] = normalizeReminderSettings(settings);
+  localStorage.setItem(USER_REMINDER_SETTINGS_KEY, JSON.stringify(next));
+}
+
 function normalizeReminderSettings(input) {
   const defaults = defaultReminderSettings();
   const source = input && typeof input === 'object' ? input : {};
@@ -3451,18 +3802,19 @@ async function initializeAccess() {
     renderSyncStatus();
     return;
   }
+  if (!syncState.token || !syncState.user) showLoginDialog();
   try {
     const status = await syncRequest('status');
     syncState.meta.initialized = status.initialized === true;
     syncState.meta.serverTime = status.serverTime || 0;
     saveSyncMeta();
     if (!syncState.meta.initialized) {
+      closeDialog('loginDialog');
       setAppLocked(false);
       setView('settings');
       return;
     }
     if (!syncState.token || !syncState.user) {
-      showLoginDialog();
       return;
     }
     await initializeSync();
@@ -3482,6 +3834,8 @@ function showLoginDialog() {
   $('#accessLoginError').textContent = '';
   setLoginButtonBusy('accessLoginBtn', false);
   if (!$('#loginDialog').open) $('#loginDialog').showModal();
+  renderBiometricSettings();
+  maybeStartBiometricLogin();
   setTimeout(() => ($('#accessLoginInput').value ? $('#accessPasswordInput') : $('#accessLoginInput')).focus(), 50);
 }
 
@@ -3519,12 +3873,17 @@ async function authenticateSync(login, password) {
   applyAuthPayload(payload);
   localStorage.setItem(LAST_LOGIN_KEY, login);
   $('#syncLoginInput').value = login;
-  await pullRemoteData({ merge: true, notify: false });
-  await refreshSyncUsers();
   startSyncPolling();
   render();
   setAppLocked(false);
   checkDueNotifications();
+  refreshAfterLogin().catch(error => console.warn('Post-login refresh', error));
+}
+
+async function refreshAfterLogin() {
+  await pullRemoteData({ merge: true, notify: false });
+  await refreshSyncUsers();
+  render();
 }
 
 async function initializeSync() {
@@ -3831,6 +4190,7 @@ function logoutSync() {
   }
   if (syncState.token && syncEnabled()) syncRequest('logout').catch(() => {});
   setAppLocked(true);
+  biometricState.autoAttempted = false;
   clearAuthSession();
   renderSyncStatus();
   renderSyncUsers();

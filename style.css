@@ -4789,3 +4789,135 @@ body[data-active-view="tasks"] .topbar {
       0 -10px 28px rgba(18, 49, 41, 0.16);
   }
 }
+
+/* Recurrence, privacy, biometrics and compact filters for 1.0.22. */
+html:not(.native-android) .native-only {
+  display: none !important;
+}
+
+.dashboard-heading-actions,
+.finance-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.privacy-toggle {
+  position: relative;
+  flex: 0 0 44px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.privacy-toggle span {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.privacy-toggle.is-hidden::after {
+  content: "";
+  position: absolute;
+  width: 27px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--red);
+  transform: rotate(-42deg);
+}
+
+#view-tasks .task-filter-row {
+  grid-template-columns: 44px repeat(2, minmax(0, 1fr));
+  width: min(470px, 100%);
+  align-items: end;
+}
+
+.task-reset-button {
+  width: 44px;
+  height: 47px;
+  min-height: 47px;
+  color: #14795d;
+  font-family: "Segoe UI Symbol", sans-serif;
+  font-size: 1.2rem;
+  font-weight: 900;
+}
+
+.task-reset-button span {
+  color: inherit;
+  line-height: 1;
+}
+
+.biometric-panel {
+  border-top: 4px solid var(--green);
+}
+
+.future-record-card > p {
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.future-record-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.product-reference-price {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 7px;
+  padding: 13px;
+  border: 1px solid #b9d8ce;
+  border-radius: 8px;
+  background: #edf8f4;
+}
+
+.product-reference-price span {
+  color: var(--brand-strong);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.product-reference-price input {
+  min-height: 44px;
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+@media (max-width: 760px) {
+  .finance-heading-actions {
+    width: 100%;
+  }
+
+  .finance-heading-actions .finance-month-switcher {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboard-heading-actions {
+    gap: 6px;
+  }
+
+  .privacy-toggle {
+    flex-basis: 40px;
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
+
+  #view-tasks .task-filter-row {
+    grid-template-columns: 40px minmax(92px, 0.75fr) minmax(122px, 1fr);
+  }
+
+  .task-reset-button {
+    width: 40px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .future-record-actions {
+    grid-template-columns: 1fr;
+  }
+}
