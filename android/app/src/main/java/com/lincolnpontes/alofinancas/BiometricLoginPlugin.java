@@ -4,11 +4,13 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
+import android.os.Build;
 import android.util.Base64;
 
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
+import androidx.core.hardware.fingerprint.FingerprintManagerCompat;
 import androidx.fragment.app.FragmentActivity;
 
 import com.getcapacitor.JSObject;
@@ -38,10 +40,13 @@ public class BiometricLoginPlugin extends Plugin {
 
     @PluginMethod
     public void getStatus(PluginCall call) {
+        int status = biometricStatus();
         JSObject result = new JSObject();
-        result.put("available", biometricAvailable());
+        result.put("available", status == BiometricManager.BIOMETRIC_SUCCESS);
         result.put("enabled", credentialsStored());
         result.put("login", preferences().getString(PREF_LOGIN, ""));
+        result.put("statusCode", status);
+        result.put("reason", biometricStatusMessage(status));
         call.resolve(result);
     }
 
@@ -120,15 +125,40 @@ public class BiometricLoginPlugin extends Plugin {
         BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
             .setSubtitle(subtitle)
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
             .setNegativeButtonText("Usar senha")
             .build();
         activity.runOnUiThread(() -> prompt.authenticate(promptInfo));
     }
 
     private boolean biometricAvailable() {
-        int authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK;
-        return BiometricManager.from(getContext()).canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS;
+        return biometricStatus() == BiometricManager.BIOMETRIC_SUCCESS;
+    }
+
+    @SuppressWarnings("deprecation")
+    private int biometricStatus() {
+        BiometricManager manager = BiometricManager.from(getContext());
+        int status = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            ? manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+            : manager.canAuthenticate();
+        if (status == BiometricManager.BIOMETRIC_SUCCESS) return status;
+
+        int legacyStatus = manager.canAuthenticate();
+        if (legacyStatus == BiometricManager.BIOMETRIC_SUCCESS) return legacyStatus;
+
+        FingerprintManagerCompat fingerprint = FingerprintManagerCompat.from(getContext());
+        if (fingerprint.isHardwareDetected() && fingerprint.hasEnrolledFingerprints()) {
+            return BiometricManager.BIOMETRIC_SUCCESS;
+        }
+        return status;
+    }
+
+    private String biometricStatusMessage(int status) {
+        if (status == BiometricManager.BIOMETRIC_SUCCESS) return "";
+        if (status == BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED) return "Nenhuma biometria está cadastrada no Android.";
+        if (status == BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE) return "O leitor biométrico está temporariamente indisponível.";
+        if (status == BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE) return "O Android não informou um leitor biométrico compatível.";
+        if (status == BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED) return "O Android exige uma atualização de segurança para usar a biometria.";
+        return "A biometria não está disponível para este aplicativo.";
     }
 
     private SharedPreferences preferences() {

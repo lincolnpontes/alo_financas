@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.23';
+const APP_VERSION = '1.0.24';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -123,7 +123,7 @@ let nativeNotificationListenerReady = false;
 let pendingNativeReminderView = '';
 let nativeLocalNotificationsPlugin = null;
 let nativeBiometricLoginPlugin = null;
-let biometricState = { available: false, enabled: false, login: '', loaded: false, autoAttempted: false, pendingEnable: false };
+let biometricState = { available: false, enabled: false, login: '', loaded: false, autoAttempted: false, pendingEnable: false, reason: '', error: '' };
 
 if (dataCleanupPending) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
@@ -179,6 +179,7 @@ function bindEvents() {
     if (syncState.user) checkRemoteRevision().catch(() => {});
   });
   $('#recordForm').addEventListener('submit', saveRecordFromForm);
+  $('#investmentForm').addEventListener('submit', saveInvestmentFromForm);
   $('#quickAmountForm').addEventListener('submit', saveQuickAmountFromForm);
   $('#flowEntryForm').addEventListener('submit', saveFlowEntryFromForm);
   $('#taskForm').addEventListener('submit', saveTaskFromForm);
@@ -373,6 +374,9 @@ function handleDocumentClick(event) {
 
   if (button.id === 'prevMonthBtn') shiftMonth(-1);
   if (button.id === 'nextMonthBtn') shiftMonth(1);
+  if (button.id === 'addInvestmentBtn') openInvestmentDialog();
+  if (button.matches('[data-edit-investment]')) openInvestmentDialog(button.dataset.editInvestment);
+  if (button.id === 'deleteInvestmentBtn') deleteCurrentInvestment();
   if (button.id === 'deleteRecordBtn') deleteCurrentRecord();
   if (button.id === 'flowEditRecordBtn') editCurrentFlowRecord();
   if (button.id === 'addTaskBtn') openTaskDialog();
@@ -400,7 +404,7 @@ function handleDocumentClick(event) {
   if (button.id === 'clearMarketFiltersBtn') clearMarketFilters();
   if (button.id === 'clearTaskFiltersBtn') clearTaskFilters();
   if (button.id === 'clearBoughtBtn') clearBoughtItems();
-  if (button.id === 'dashboardPrivacyToggle' || button.id === 'financePrivacyToggle') togglePrivateValues();
+  if (button.id === 'headerPrivacyToggle' || button.id === 'financePrivacyToggle') togglePrivateValues();
   if (button.id === 'biometricLoginBtn') runBiometricLogin();
   if (button.id === 'accessLoginBtn') {
     event.preventDefault();
@@ -515,6 +519,7 @@ function render() {
   renderDashboard();
   renderFinances();
   renderMarket();
+  renderNavigationBadges();
   renderTasks();
   renderSettings();
   renderSyncStatus();
@@ -531,9 +536,6 @@ function renderDashboard() {
     .filter(item => item.month === dashboardMonth && item.status !== 'paid')
     .sort((a, b) => expenseSortDay(a) - expenseSortDay(b))
     .slice(0, 6);
-  const neededItems = visible(db.pantry.list)
-    .filter(item => item.status !== 'bought')
-    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
   const pendingTasks = visible(db.tasks)
     .filter(item => item.status !== 'completed')
     .sort((a, b) => String(a.dueDate || '9999-12-31').localeCompare(String(b.dueDate || '9999-12-31')))
@@ -545,7 +547,7 @@ function renderDashboard() {
     metricEmoji('Pendente', pendingWithHistory, '', '⚠️', 'pending', true, { view: 'finances', target: 'expenseList', expenseFilter: 'open' }),
     metricEmoji('Poupança e contas', totals.accountTotal, '', '🐖', 'savings', true, { view: 'finances', target: 'accountList' }),
     metricEmoji('Saldo do mês', totals.monthBalance, '', '💰', totals.monthBalance >= 0 ? 'balance' : 'expense', true, { view: 'finances', target: 'financeSummary' }),
-    metricEmoji('Lista da feira', neededItems.length, '', '🛒', 'market', false, { view: 'market', target: 'shoppingList' })
+    metricEmoji('Valor investido', totals.investmentTotal, '', '📈', 'investment', true, { view: 'finances', target: 'investmentPanel' })
   ].join('');
 
   $('#upcomingList').innerHTML = dueSoon.length
@@ -570,17 +572,26 @@ function renderFinances() {
   const totals = calculateTotals();
   $('#financeSummary').innerHTML = [
     summaryTile('Recebido', totals.incomeReceived),
-    summaryTile('Esperado', totals.incomeOpen),
+    summaryTile('Valor investido', totals.investmentTotal),
     summaryTile('Pago', totals.expensePaid),
     summaryTile('Devendo', totals.expenseOpen)
   ].join('');
 
   renderExpenseList();
+  renderInvestmentList();
   renderIncomeList();
   renderAccountList();
   renderReceivableList();
   renderDebtList();
   setSegmentActive('#expenseFilter', 'expenseFilter', state.expenseFilter);
+}
+
+function renderNavigationBadges() {
+  const pendingCount = visible(db.pantry.list).filter(item => item.status === 'needed').length;
+  const badge = $('#marketPendingBadge');
+  if (!badge) return;
+  badge.textContent = pendingCount > 99 ? '99+' : String(pendingCount);
+  badge.hidden = pendingCount === 0;
 }
 
 function renderExpenseList() {
@@ -602,6 +613,32 @@ function renderIncomeList() {
   $('#incomeList').innerHTML = items.length
     ? items.map(item => financeRow('income', item)).join('')
     : emptyState('Nenhuma receita neste mês.');
+}
+
+function renderInvestmentList() {
+  const items = visibleInvestmentLinks()
+    .map(link => ({ link, account: investmentAccount(link) }))
+    .filter(entry => entry.account)
+    .sort((a, b) => a.account.name.localeCompare(b.account.name));
+  $('#investmentList').innerHTML = items.length
+    ? items.map(investmentRow).join('')
+    : emptyState('Vincule uma poupança, investimento ou carteira digital.');
+}
+
+function investmentRow({ link, account }) {
+  return `
+    <div class="data-row finance-row investment-row">
+      <button class="row-icon finance-action-trigger investment" type="button" data-edit-investment="${escapeAttr(link.id)}" title="Editar vínculo" aria-label="Editar investimento ${escapeAttr(account.name)}">${iconSvg('piggy-bank')}</button>
+      <div class="data-main">
+        <strong>${escapeHTML(account.name)}</strong>
+        <small>${escapeHTML(`${account.type || 'Investimento'} (em ${shortDate(account.updatedAt || account.createdAt)})`)}</small>
+      </div>
+      <div class="row-amount">
+        <span>${escapeHTML(privateValue(formatMoney(account.balance)))}</span>
+        <span class="badge investment">Vinculado</span>
+      </div>
+    </div>
+  `;
 }
 
 function renderAccountList() {
@@ -982,11 +1019,13 @@ async function initializeBiometricLogin() {
       available: status.available === true,
       enabled: status.enabled === true,
       login: String(status.login || '').toLowerCase(),
+      reason: String(status.reason || ''),
+      error: '',
       loaded: true
     };
   } catch (error) {
     console.warn('Biometric status', error);
-    biometricState = { ...biometricState, available: false, enabled: false, loaded: true };
+    biometricState = { ...biometricState, available: false, enabled: false, reason: '', error: error.message || 'Não foi possível acessar a biometria.', loaded: true };
   }
   renderBiometricSettings();
   maybeStartBiometricLogin();
@@ -1003,15 +1042,11 @@ function renderBiometricSettings() {
   }
   const hint = $('#biometricLoginHint');
   if (hint) {
-    hint.textContent = !biometricState.loaded
-      ? 'Verificando disponibilidade neste aparelho.'
-      : !biometricState.available
-        ? 'Biometria indisponível neste aparelho.'
-        : enabledForLogin
-          ? 'Ativa para este login.'
-          : biometricState.pendingEnable
-            ? 'Será ativada após entrar com a senha.'
-            : 'Ative e entre com a senha uma vez.';
+    const message = biometricState.error || (biometricState.loaded && !biometricState.available
+      ? biometricState.reason || 'Biometria indisponível neste aparelho.'
+      : '');
+    hint.textContent = message;
+    hint.hidden = !message;
   }
   const loginButton = $('#biometricLoginBtn');
   if (loginButton) loginButton.hidden = !(biometricState.available && biometricState.enabled && biometricState.login === rememberedLogin);
@@ -1020,18 +1055,19 @@ function renderBiometricSettings() {
 async function handleBiometricToggle(enabled) {
   const plugin = nativeBiometricLogin();
   if (!plugin || !biometricState.available) {
-    biometricState.pendingEnable = false;
+    biometricState = { ...biometricState, pendingEnable: false, error: biometricState.reason || 'Biometria indisponível neste aparelho.' };
     renderBiometricSettings();
     return toast('A biometria não está disponível neste aparelho.', 'error');
   }
   if (!enabled) {
     if (biometricState.enabled) await plugin.disable();
-    biometricState = { ...biometricState, enabled: false, login: '', pendingEnable: false, autoAttempted: true };
+    biometricState = { ...biometricState, enabled: false, login: '', pendingEnable: false, autoAttempted: true, error: '' };
     renderBiometricSettings();
     toast('Entrada por biometria desativada.', 'good');
     return;
   }
   biometricState.pendingEnable = true;
+  biometricState.error = '';
   renderBiometricSettings();
   $('#accessPasswordInput')?.focus();
 }
@@ -1061,6 +1097,8 @@ async function runBiometricLogin(automatic = false) {
     toast('Entrada por biometria concluída.', 'good');
   } catch (error) {
     if (!automatic && !/cancel|senha/i.test(error.message || '')) {
+      biometricState.error = error.message || 'Não foi possível usar a biometria.';
+      renderBiometricSettings();
       $('#accessLoginError').textContent = error.message || 'Não foi possível usar a biometria.';
       $('#accessLoginError').hidden = false;
     }
@@ -1889,6 +1927,7 @@ function calculateTotals(month = state.month) {
   const expenses = visible(db.finances.expenses).filter(item => item.month === month);
   const incomes = visible(db.finances.incomes).filter(item => item.month === month);
   const accounts = visible(db.finances.accounts);
+  const investmentAccountIds = new Set(visibleInvestmentLinks().map(item => item.accountId));
   const receivables = visible(db.finances.receivables);
   const debts = visible(db.finances.debts);
 
@@ -1903,6 +1942,9 @@ function calculateTotals(month = state.month) {
   const incomeReceived = sum(incomes.filter(item => item.status === 'received'), 'amount');
   const incomeOpen = sum(incomes.filter(item => item.status !== 'received'), 'amount');
   const accountTotal = sum(accounts, 'balance');
+  const investmentTotal = roundMoney(accounts
+    .filter(account => investmentAccountIds.has(account.id) && isInvestmentAccount(account))
+    .reduce((total, account) => total + Number(account.balance || 0), 0));
   const receivableOpen = roundMoney(receivables.reduce((total, item) => total + remainingFlowAmount('receivable', item), 0));
   const debtOpen = roundMoney(debts.reduce((total, item) => total + remainingFlowAmount('debt', item), 0));
 
@@ -1914,6 +1956,7 @@ function calculateTotals(month = state.month) {
     incomeReceived,
     incomeOpen,
     accountTotal,
+    investmentTotal,
     receivableOpen,
     debtOpen,
     monthBalance: incomeTotal - expenseTotal
@@ -1924,10 +1967,94 @@ function isCardExpense(item) {
   return normalizeText(item?.paymentMethod) === 'cartao';
 }
 
+function isInvestmentAccount(account) {
+  return ['poupanca', 'investimento', 'carteira digital'].includes(normalizeText(account?.type));
+}
+
+function visibleInvestmentLinks() {
+  const seen = new Set();
+  return visible(db.finances.investments)
+    .slice()
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .filter(link => {
+      if (!link.accountId || seen.has(link.accountId)) return false;
+      seen.add(link.accountId);
+      return true;
+    });
+}
+
+function investmentAccount(link) {
+  return visible(db.finances.accounts).find(account => account.id === link?.accountId && isInvestmentAccount(account)) || null;
+}
+
+function eligibleInvestmentAccounts(currentLinkId = '') {
+  const usedAccountIds = new Set(visible(db.finances.investments)
+    .filter(link => link.id !== currentLinkId)
+    .map(link => link.accountId));
+  return visible(db.finances.accounts)
+    .filter(isInvestmentAccount)
+    .filter(account => !usedAccountIds.has(account.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function openInvestmentDialog(id = '') {
+  const link = id ? db.finances.investments.find(item => item.id === id && !item.deletedAt) : null;
+  const accounts = eligibleInvestmentAccounts(link?.id || '');
+  if (!accounts.length) {
+    toast('Cadastre primeiro uma poupança, investimento ou carteira digital em Contas e reservas.', 'error');
+    return;
+  }
+  $('#investmentDialogTitle').textContent = link ? 'Editar investimento' : 'Vincular investimento';
+  $('#investmentId').value = link?.id || '';
+  fillSelect(
+    $('#investmentAccountInput'),
+    accounts.map(account => [account.id, `${account.name} - ${account.type}`]),
+    link?.accountId || accounts[0].id
+  );
+  $('#deleteInvestmentBtn').hidden = !link;
+  $('#investmentDialog').showModal();
+  $('#investmentAccountInput').focus();
+}
+
+function saveInvestmentFromForm(event) {
+  event.preventDefault();
+  const id = $('#investmentId').value || uid('investment');
+  const accountId = $('#investmentAccountInput').value;
+  const account = visible(db.finances.accounts).find(item => item.id === accountId && isInvestmentAccount(item));
+  if (!account) return toast('Escolha uma conta elegível.', 'error');
+  const now = Date.now();
+  let link = db.finances.investments.find(item => item.id === id);
+  const isNew = !link;
+  if (!link) {
+    link = { id, createdAt: now, deletedAt: 0 };
+    db.finances.investments.push(link);
+  }
+  link.accountId = account.id;
+  link.updatedAt = now;
+  link.deletedAt = 0;
+  addAudit(isNew ? 'vinculou' : 'alterou', 'o investimento', account.name);
+  saveData();
+  closeDialog('investmentDialog');
+  toast('Investimento vinculado.', 'good');
+}
+
+function deleteCurrentInvestment() {
+  const id = $('#investmentId').value;
+  const link = db.finances.investments.find(item => item.id === id && !item.deletedAt);
+  if (!link || !confirm('Excluir este vínculo de investimento?')) return;
+  const account = investmentAccount(link);
+  markDeleted(db.finances.investments, id);
+  addAudit('excluiu', 'o investimento', account?.name || 'Conta vinculada');
+  saveData();
+  closeDialog('investmentDialog');
+  toast('Vínculo excluído.', 'good');
+}
+
 function openRecordDialog(type, id = '') {
   const config = recordConfig(type);
   const item = id ? getCollection(type).find(entry => entry.id === id) : null;
   $('#recordDialogTitle').textContent = item ? `Editar ${config.singular}` : `${config.newLabel} ${config.singular}`;
+  $('#recordDialog').dataset.recordType = type;
   $('#recordType').value = type;
   $('#recordId').value = id;
   $('#recordName').value = item?.title || item?.name || item?.person || '';
@@ -1997,6 +2124,11 @@ async function saveRecordFromForm(event) {
     item.balance = amount;
     item.type = $('#recordCategory').value;
     if (!item.name) return toast('Informe o nome da conta.', 'error');
+    if (!isInvestmentAccount(item)) {
+      visible(db.finances.investments)
+        .filter(link => link.accountId === item.id)
+        .forEach(link => markDeleted(db.finances.investments, link.id));
+    }
   } else if (type === 'receivable' || type === 'debt') {
     const minimumBase = existing ? Math.max(0, roundMoney(settledFlowAmount(type, existing) - increasedFlowAmount(type, existing))) : 0;
     if (amount + 0.005 < minimumBase) return toast(`O valor inicial não pode ser menor que ${formatMoney(minimumBase)}, considerando o histórico.`, 'error');
@@ -2133,6 +2265,11 @@ function deleteCurrentRecord() {
   if (!confirm('Excluir este registro?')) return;
   const item = getCollection(type).find(entry => entry.id === id);
   markDeleted(getCollection(type), id);
+  if (type === 'account') {
+    visible(db.finances.investments)
+      .filter(link => link.accountId === id)
+      .forEach(link => markDeleted(db.finances.investments, link.id));
+  }
   if (type === 'receivable' || type === 'debt') {
     flowEntries(type, id).forEach(entry => markDeleted(db.finances.settlements, entry.id));
   }
@@ -3180,7 +3317,7 @@ function togglePrivateValues() {
 }
 
 function updatePrivacyControls() {
-  ['dashboardPrivacyToggle', 'financePrivacyToggle'].forEach(id => {
+  ['headerPrivacyToggle', 'financePrivacyToggle'].forEach(id => {
     const button = document.getElementById(id);
     if (!button) return;
     button.classList.toggle('is-hidden', state.valuesHidden);
@@ -3731,7 +3868,7 @@ function defaultDB() {
 
   return {
     appId: APP_ID,
-    schemaVersion: 3,
+    schemaVersion: 4,
     createdAt: now,
     updatedAt: now,
     settings: {
@@ -3747,6 +3884,7 @@ function defaultDB() {
         { id: 'account-conta', name: 'Conta', type: 'Conta corrente', balance: 0, notes: '', createdAt: now, updatedAt: now },
         { id: 'account-poupanca', name: 'Poupança', type: 'Poupança', balance: 0, notes: '', createdAt: now, updatedAt: now }
       ],
+      investments: [],
       receivables: [],
       debts: [],
       settlements: []
@@ -3775,8 +3913,8 @@ function normalizeDB(input) {
   };
   normalized.appId = APP_ID;
   normalized.settings.reminders = normalizeReminderSettings(data.settings?.reminders);
-  normalized.schemaVersion = 3;
-  ['expenses', 'incomes', 'accounts', 'receivables', 'debts', 'recurring', 'settlements'].forEach(key => {
+  normalized.schemaVersion = 4;
+  ['expenses', 'incomes', 'accounts', 'investments', 'receivables', 'debts', 'recurring', 'settlements'].forEach(key => {
     const normalizer = key === 'expenses' || key === 'incomes' ? normalizeFinanceItem : normalizeItem;
     normalized.finances[key] = Array.isArray(normalized.finances[key]) ? normalized.finances[key].map(normalizer) : [];
   });
@@ -3918,12 +4056,14 @@ async function handleAccessLogin(event) {
           login,
           loaded: true,
           pendingEnable: false,
-          autoAttempted: true
+          autoAttempted: true,
+          error: ''
         };
         biometricActivated = true;
       } catch (biometricError) {
         biometricState.pendingEnable = false;
-        toast(biometricError.message || 'Login feito, mas não foi possível ativar a biometria.', 'error');
+        biometricState.error = biometricError.message || 'Login feito, mas não foi possível ativar a biometria.';
+        toast(biometricState.error, 'error');
       }
     }
     $('#accessPasswordInput').value = '';
@@ -4401,6 +4541,7 @@ function mergeDB(remote, local) {
   merged.finances.incomes = mergeFinanceArray(remote.finances.incomes, local.finances.incomes);
   merged.finances.recurring = mergeArray(remote.finances.recurring, local.finances.recurring);
   merged.finances.accounts = mergeArray(remote.finances.accounts, local.finances.accounts);
+  merged.finances.investments = mergeArray(remote.finances.investments, local.finances.investments);
   merged.finances.receivables = mergeArray(remote.finances.receivables, local.finances.receivables);
   merged.finances.debts = mergeArray(remote.finances.debts, local.finances.debts);
   merged.finances.settlements = mergeArray(remote.finances.settlements, local.finances.settlements);
@@ -4488,7 +4629,7 @@ function normalizeLogicalDuplicates(data) {
     accounts.push(canonical);
   });
   data.finances.accounts = deletedAccounts.concat(accounts);
-  ['expenses', 'incomes', 'recurring'].forEach(collection => {
+  ['expenses', 'incomes', 'recurring', 'investments'].forEach(collection => {
     (data.finances[collection] || []).forEach(item => {
       if (item.accountId) item.accountId = accountIdMap.get(item.accountId) || item.accountId;
     });

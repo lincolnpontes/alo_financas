@@ -22,6 +22,7 @@
 
       <div class="topbar-actions">
         <button class="icon-btn" type="button" id="installBtn" title="Instalar app" aria-label="Instalar app" hidden data-icon="download"></button>
+        <button class="icon-btn privacy-toggle" type="button" id="headerPrivacyToggle" title="Ocultar valores" aria-label="Ocultar valores"><span aria-hidden="true">👁️</span></button>
         <button class="icon-btn sign-out-btn" type="button" id="lockBtn" title="Sair" aria-label="Sair e exigir a senha novamente" data-icon="log-out"></button>
       </div>
     </header>
@@ -32,7 +33,6 @@
           <h2 id="dashboardTitle">Painel da casa</h2>
           <div class="dashboard-heading-actions">
             <p class="dashboard-today" id="todayLabel">Hoje</p>
-            <button class="icon-btn privacy-toggle" type="button" id="dashboardPrivacyToggle" title="Ocultar valores" aria-label="Ocultar valores"><span aria-hidden="true">👁️</span></button>
           </div>
         </div>
 
@@ -80,7 +80,7 @@
 
         <div class="finance-summary" id="financeSummary"></div>
 
-        <div class="two-column">
+        <div class="two-column finance-primary-grid">
           <article class="panel">
             <div class="panel-title">
               <h3>Despesas</h3>
@@ -96,13 +96,23 @@
             <div class="data-list" id="expenseList"></div>
           </article>
 
-          <article class="panel">
-            <div class="panel-title">
-              <h3>Receitas</h3>
-              <button class="panel-add-btn income-add" type="button" data-open-record="income" title="Adicionar receita" aria-label="Adicionar receita" data-icon="plus"></button>
-            </div>
-            <div class="data-list" id="incomeList"></div>
-          </article>
+          <div class="finance-side-stack">
+            <article class="panel investment-panel" id="investmentPanel">
+              <div class="panel-title">
+                <h3>Investimentos</h3>
+                <button class="panel-add-btn investment-add" type="button" id="addInvestmentBtn" title="Vincular investimento" aria-label="Vincular investimento" data-icon="plus"></button>
+              </div>
+              <div class="data-list compact-list" id="investmentList"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-title">
+                <h3>Receitas</h3>
+                <button class="panel-add-btn income-add" type="button" data-open-record="income" title="Adicionar receita" aria-label="Adicionar receita" data-icon="plus"></button>
+              </div>
+              <div class="data-list" id="incomeList"></div>
+            </article>
+          </div>
         </div>
 
         <div class="three-column">
@@ -434,7 +444,7 @@
     <nav class="bottom-nav" aria-label="Navegacao principal">
       <button type="button" class="is-active nav-dashboard" data-view="dashboard" aria-label="Painel" title="Painel"><span class="nav-emoji" aria-hidden="true">🏠</span><span>Painel</span></button>
       <button type="button" class="nav-finances" data-view="finances" aria-label="Finanças" title="Finanças"><span class="nav-emoji" aria-hidden="true">💲</span><span>Finanças</span></button>
-      <button type="button" data-view="market" aria-label="Feira" title="Feira"><span class="nav-emoji" aria-hidden="true">🛒</span><span>Feira</span></button>
+      <button type="button" data-view="market" aria-label="Feira" title="Feira"><span class="nav-emoji" aria-hidden="true">🛒</span><span>Feira</span><span class="nav-count" id="marketPendingBadge" hidden>0</span></button>
       <button type="button" data-view="tasks" aria-label="Tarefas" title="Tarefas"><span class="nav-emoji" aria-hidden="true">📌</span><span>Tarefas</span></button>
       <button type="button" data-view="settings" aria-label="Ajustes" title="Ajustes"><span class="nav-emoji" aria-hidden="true">⚙️</span><span>Ajustes</span></button>
     </nav>
@@ -454,11 +464,11 @@
           <span>Nome</span>
           <input id="recordName" required autocomplete="off" />
         </label>
-        <label>
+        <label class="record-amount-field">
           <span id="recordAmountLabel">Valor</span>
           <input id="recordAmount" inputmode="numeric" data-money-cents required placeholder="0,00" />
         </label>
-        <label id="recordDayWrap">
+        <label class="record-day-field" id="recordDayWrap">
           <span id="recordDayLabel">Dia</span>
           <input id="recordDay" inputmode="numeric" placeholder="10" />
         </label>
@@ -478,11 +488,11 @@
           <span>Status</span>
           <select id="recordStatus"></select>
         </label>
-        <label>
+        <label class="record-owner-field">
           <span>Responsável</span>
           <select id="recordOwner"></select>
         </label>
-        <label>
+        <label class="record-category-field">
           <span>Categoria</span>
           <select id="recordCategory"></select>
         </label>
@@ -542,6 +552,30 @@
         <button class="danger-btn" type="button" id="deleteRecordBtn" data-icon="trash-2" hidden>Excluir</button>
         <span class="spacer"></span>
         <button class="secondary-btn" type="button" data-close-dialog="recordDialog">Cancelar</button>
+        <button class="primary-btn" type="submit" data-icon="check">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal compact-modal" id="investmentDialog">
+    <form method="dialog" class="modal-card" id="investmentForm">
+      <div class="modal-title">
+        <div>
+          <p class="eyebrow">Patrimônio</p>
+          <h3 id="investmentDialogTitle">Vincular investimento</h3>
+        </div>
+        <button class="icon-btn" type="button" data-close-dialog="investmentDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
+      </div>
+      <input type="hidden" id="investmentId" />
+      <label>
+        <span>Conta vinculada</span>
+        <select id="investmentAccountInput" required></select>
+      </label>
+      <p class="investment-dialog-note">O valor investido acompanha automaticamente o saldo da conta escolhida.</p>
+      <div class="modal-actions compact-actions">
+        <button class="danger-btn" type="button" id="deleteInvestmentBtn" data-icon="trash-2" hidden>Excluir</button>
+        <span class="spacer"></span>
+        <button class="secondary-btn" type="button" data-close-dialog="investmentDialog">Cancelar</button>
         <button class="primary-btn" type="submit" data-icon="check">Salvar</button>
       </div>
     </form>
@@ -957,7 +991,7 @@
         <img class="brand-mark" src="icon.svg" alt="" aria-hidden="true" />
         <div>
           <h3>Alô Finanças</h3>
-              <small class="login-version" id="loginVersion">v1.0.23</small>
+              <small class="login-version" id="loginVersion">v1.0.24</small>
         </div>
       </div>
       <label>
@@ -970,8 +1004,8 @@
       </label>
       <label class="switch-row login-biometric-switch native-only">
         <span>
-          <strong>Usar biometria</strong>
-          <small id="biometricLoginHint">Verificando disponibilidade neste aparelho.</small>
+          <strong>Habilitar biometria</strong>
+          <small class="biometric-login-error" id="biometricLoginHint" hidden></small>
         </span>
         <input id="biometricLoginEnabled" type="checkbox" />
         <i aria-hidden="true"></i>
