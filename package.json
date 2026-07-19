@@ -1,0 +1,20 @@
+{
+  "name": "alo-financas",
+  "version": "1.0.19",
+  "private": true,
+  "description": "Financas da casa, tarefas e lista da feira.",
+  "scripts": {
+    "web:copy": "node tools/copy-web.mjs",
+    "android:sync": "npm run web:copy && cap sync android",
+    "android:apk": "npm run android:sync && powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-android.ps1"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/local-notifications": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.0.0"
+  }
+}

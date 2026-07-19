@@ -4734,6 +4734,15 @@ body[data-active-view="tasks"] .topbar {
   width: 44px;
   height: 47px;
   min-height: 47px;
+  color: #14795d;
+  font-family: "Segoe UI Symbol", sans-serif;
+  font-size: 1.2rem;
+  font-weight: 900;
+}
+
+#view-market .market-reset-button span {
+  color: inherit;
+  line-height: 1;
 }
 
 #view-market .market-status-filter {

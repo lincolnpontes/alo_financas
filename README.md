@@ -32,3 +32,15 @@ Depois abra `http://localhost:8787`.
 7. Depois de conectado, use a seção Usuarios para cadastrar as outras pessoas e suas senhas.
 
 Cada usuario sincronizado tem login e senha proprios no Apps Script, armazenados como hash com salt. O ultimo login fica lembrado somente no aparelho; a senha nunca e salva. O token de sessao fica no `sessionStorage` e e apagado ao sair.
+
+## Android
+
+O projeto Android usa Capacitor e notificacoes locais nativas. Os arquivos web continuam sendo a fonte do aplicativo; `npm run android:sync` os copia para o projeto Android.
+
+Para gerar o APK assinado neste computador:
+
+```powershell
+npm run android:apk
+```
+
+A chave de assinatura fica fora do repositorio, em `%USERPROFILE%\.alo-financas`. No primeiro uso, permita as notificacoes e o acesso a alarmes exatos quando o Android solicitar.

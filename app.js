@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.18';
+const APP_VERSION = '1.0.19';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -8,6 +8,10 @@ const SYNC_USER_KEY = 'alo_financas_sync_user_v1';
 const SYNC_REVISION_KEY = 'alo_financas_sync_revision_v1';
 const LAST_LOGIN_KEY = 'alo_financas_last_login_v1';
 const REMINDER_META_KEY = 'alo_financas_reminder_meta_v1';
+const NATIVE_REMINDER_ID_MIN = 1900000000;
+const NATIVE_REMINDER_ID_MAX = 1900999999;
+const NATIVE_REMINDER_LIMIT = 320;
+const NATIVE_REMINDER_HORIZON_DAYS = 14;
 const SYNC_DEBOUNCE_MS = 1800;
 const MARKET_REORDER_DELAY_MS = 10000;
 const MARKET_PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -105,6 +109,13 @@ let syncState = {
 let reminderState = readJSON(localStorage.getItem(REMINDER_META_KEY), { lastSent: {} });
 if (!reminderState || typeof reminderState !== 'object') reminderState = { lastSent: {} };
 if (!reminderState.lastSent || typeof reminderState.lastSent !== 'object') reminderState.lastSent = {};
+let nativeNotificationPermission = 'prompt';
+let nativeReminderSyncTimer = null;
+let nativeReminderSyncBusy = false;
+let nativeReminderSyncQueued = false;
+let nativeNotificationListenerReady = false;
+let pendingNativeReminderView = '';
+let nativeLocalNotificationsPlugin = null;
 
 if (dataCleanupPending) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
@@ -131,7 +142,8 @@ function init() {
   render();
   setInterval(cleanupExpiredBoughtItems, 60 * 60 * 1000);
   setInterval(checkDueNotifications, 5 * 60 * 1000);
-  registerServiceWorker();
+  initializeNativeNotifications().catch(error => console.warn('Native notifications', error));
+  if (!isNativeApp()) registerServiceWorker();
   prepareInstallPrompt();
   initializeAccess().catch(() => renderSyncStatus());
   setTimeout(checkDueNotifications, 1500);
@@ -756,15 +768,16 @@ function renderReminderSettings() {
       else input.value = String(profile[property] ?? '');
     });
   });
-  const supported = 'Notification' in window;
-  const permission = supported ? Notification.permission : 'unsupported';
+  const nativePlugin = nativeLocalNotifications();
+  const supported = Boolean(nativePlugin) || 'Notification' in window;
+  const permission = nativePlugin ? nativeNotificationPermission : supported ? Notification.permission : 'unsupported';
   const enabledCount = ['expenses', 'tasks', 'market'].filter(type => reminders[type]?.enabled).length;
   const active = enabledCount > 0 && permission === 'granted';
   const pill = $('#reminderStatusPill');
   pill.textContent = active ? `${enabledCount} ${enabledCount === 1 ? 'ativo' : 'ativos'}` : enabledCount ? 'Sem permissão' : 'Desativados';
   pill.className = `status-pill${active ? ' good' : ''}`;
   const permissionButton = $('#notificationPermissionBtn');
-  permissionButton.disabled = !supported || permission === 'denied';
+  permissionButton.disabled = !supported;
   permissionButton.innerHTML = iconSvg('bell') + (permission === 'granted' ? 'Notificações permitidas' : permission === 'denied' ? 'Permissão bloqueada' : 'Permitir notificações');
 }
 
@@ -795,6 +808,27 @@ function readReminderProfile(prefix, options = {}) {
 }
 
 async function requestNotificationPermission() {
+  const nativePlugin = nativeLocalNotifications();
+  if (nativePlugin) {
+    try {
+      const permission = await nativePlugin.requestPermissions();
+      nativeNotificationPermission = permission.display || 'prompt';
+      if (nativeNotificationPermission === 'granted') {
+        await ensureNativeNotificationChannel();
+        await requestExactAlarmAccess();
+        await syncNativeReminders();
+        renderReminderSettings();
+        toast('Notificações permitidas.', 'good');
+      } else {
+        renderReminderSettings();
+        toast('A permissão de notificações não foi concedida.', 'error');
+      }
+    } catch (error) {
+      console.warn('Native notification permission', error);
+      toast('Não foi possível ativar as notificações.', 'error');
+    }
+    return;
+  }
   if (!('Notification' in window)) return toast('Este navegador não oferece notificações.', 'error');
   const permission = await Notification.requestPermission();
   if (permission === 'granted') {
@@ -809,6 +843,10 @@ async function requestNotificationPermission() {
 
 async function checkDueNotifications() {
   const reminders = db.settings.reminders;
+  if (nativeLocalNotifications()) {
+    if (!document.body.classList.contains('app-locked')) scheduleNativeReminderSync();
+    return;
+  }
   if (!reminders || !('Notification' in window) || Notification.permission !== 'granted' || document.body.classList.contains('app-locked')) return;
   const now = Date.now();
   const candidates = [];
@@ -861,6 +899,206 @@ async function checkDueNotifications() {
       localStorage.setItem(REMINDER_META_KEY, JSON.stringify(reminderState));
     }
   }
+}
+
+function isNativeApp() {
+  try {
+    return Boolean(window.Capacitor?.isNativePlatform?.());
+  } catch (error) {
+    return false;
+  }
+}
+
+function nativeLocalNotifications() {
+  if (!isNativeApp()) return null;
+  if (!nativeLocalNotificationsPlugin && typeof window.Capacitor?.registerPlugin === 'function') {
+    nativeLocalNotificationsPlugin = window.Capacitor.registerPlugin('LocalNotifications');
+  }
+  return nativeLocalNotificationsPlugin || window.Capacitor?.Plugins?.LocalNotifications || null;
+}
+
+async function initializeNativeNotifications() {
+  const plugin = nativeLocalNotifications();
+  if (!plugin) return;
+
+  if (!nativeNotificationListenerReady && typeof plugin.addListener === 'function') {
+    nativeNotificationListenerReady = true;
+    await plugin.addListener('localNotificationActionPerformed', event => {
+      const view = event?.notification?.extra?.view;
+      if (!['dashboard', 'finances', 'market', 'tasks', 'settings'].includes(view)) return;
+      if (document.body.classList.contains('app-locked')) pendingNativeReminderView = view;
+      else setView(view);
+    });
+  }
+
+  const permission = await plugin.checkPermissions();
+  nativeNotificationPermission = permission.display || 'prompt';
+  if (nativeNotificationPermission === 'granted') {
+    await ensureNativeNotificationChannel();
+    scheduleNativeReminderSync();
+  }
+  renderReminderSettings();
+}
+
+async function ensureNativeNotificationChannel() {
+  const plugin = nativeLocalNotifications();
+  if (!plugin || window.Capacitor?.getPlatform?.() !== 'android' || typeof plugin.createChannel !== 'function') return;
+  await plugin.createChannel({
+    id: 'alo_reminders',
+    name: 'Lembretes da casa',
+    description: 'Contas, tarefas e prioridades da lista da feira',
+    importance: 5,
+    visibility: 1,
+    vibration: true
+  });
+}
+
+async function requestExactAlarmAccess() {
+  const plugin = nativeLocalNotifications();
+  if (!plugin || window.Capacitor?.getPlatform?.() !== 'android' || typeof plugin.checkExactNotificationSetting !== 'function') return;
+  try {
+    const status = await plugin.checkExactNotificationSetting();
+    if (status?.exact_alarm !== 'granted' && typeof plugin.changeExactNotificationSetting === 'function') {
+      await plugin.changeExactNotificationSetting();
+    }
+  } catch (error) {
+    console.warn('Exact alarm permission', error);
+  }
+}
+
+function scheduleNativeReminderSync(delay = 700) {
+  if (!nativeLocalNotifications()) return;
+  clearTimeout(nativeReminderSyncTimer);
+  nativeReminderSyncTimer = setTimeout(() => syncNativeReminders().catch(error => console.warn('Native reminder sync', error)), delay);
+}
+
+async function syncNativeReminders() {
+  const plugin = nativeLocalNotifications();
+  if (!plugin || nativeNotificationPermission !== 'granted') return;
+  if (nativeReminderSyncBusy) {
+    nativeReminderSyncQueued = true;
+    return;
+  }
+
+  nativeReminderSyncBusy = true;
+  try {
+    const pending = await plugin.getPending();
+    const oldNotifications = (pending.notifications || [])
+      .filter(notification => notification.id >= NATIVE_REMINDER_ID_MIN && notification.id <= NATIVE_REMINDER_ID_MAX)
+      .map(notification => ({ id: notification.id }));
+    if (oldNotifications.length) await plugin.cancel({ notifications: oldNotifications });
+
+    const notifications = buildNativeReminderNotifications();
+    for (let index = 0; index < notifications.length; index += 50) {
+      await plugin.schedule({ notifications: notifications.slice(index, index + 50) });
+    }
+  } finally {
+    nativeReminderSyncBusy = false;
+    if (nativeReminderSyncQueued) {
+      nativeReminderSyncQueued = false;
+      scheduleNativeReminderSync(250);
+    }
+  }
+}
+
+function buildNativeReminderNotifications() {
+  const now = Date.now();
+  const horizon = now + NATIVE_REMINDER_HORIZON_DAYS * 24 * 60 * 60 * 1000;
+  const reminders = db.settings.reminders || {};
+  const definitions = [
+    { type: 'expenses', profile: reminders.expenses, view: 'finances', title: 'Contas para conferir', sources: nativeExpenseReminderSources() },
+    { type: 'tasks', profile: reminders.tasks, view: 'tasks', title: 'Tarefas para conferir', sources: nativeTaskReminderSources() },
+    { type: 'market', profile: reminders.market, view: 'market', title: 'Prioridades na lista da feira', sources: nativeMarketReminderSources() }
+  ];
+  const queue = [];
+
+  definitions.forEach(definition => {
+    if (!definition.profile?.enabled || !definition.sources.length) return;
+    nativeReminderSlots(definition.profile, now, horizon).forEach(at => {
+      const activeSources = definition.sources.filter(source => at.getTime() >= source.activeFrom);
+      if (!activeSources.length) return;
+      queue.push({
+        at,
+        title: definition.title,
+        body: nativeReminderSummary(definition.type, activeSources),
+        view: definition.view
+      });
+    });
+  });
+
+  return queue
+    .sort((a, b) => a.at - b.at)
+    .slice(0, NATIVE_REMINDER_LIMIT)
+    .map((entry, index) => ({
+      id: NATIVE_REMINDER_ID_MIN + index,
+      title: entry.title,
+      body: entry.body,
+      schedule: { at: entry.at, allowWhileIdle: true },
+      channelId: 'alo_reminders',
+      smallIcon: 'ic_stat_home',
+      extra: { view: entry.view }
+    }));
+}
+
+function nativeExpenseReminderSources() {
+  const profile = db.settings.reminders?.expenses || {};
+  const leadTime = Number(profile.daysBefore || 0) * 24 * 60 * 60 * 1000;
+  return visible(db.finances.expenses)
+    .filter(item => item.status !== 'paid' && !isCardExpense(item))
+    .map(item => ({ name: item.title, activeFrom: expenseDueTimestamp(item) - leadTime }))
+    .filter(item => item.activeFrom > 0);
+}
+
+function nativeTaskReminderSources() {
+  const profile = db.settings.reminders?.tasks || {};
+  const leadTime = Number(profile.daysBefore || 0) * 24 * 60 * 60 * 1000;
+  return visible(db.tasks)
+    .filter(item => item.status !== 'completed')
+    .map(item => ({ name: item.title, activeFrom: taskDueTimestamp(item) - leadTime }))
+    .filter(item => item.activeFrom > 0);
+}
+
+function nativeMarketReminderSources() {
+  const profile = db.settings.reminders?.market || {};
+  const delay = Number(profile.delayHours || 0) * 60 * 60 * 1000;
+  return visible(db.pantry.list)
+    .filter(item => item.status !== 'bought' && item.priority === 'high')
+    .map(item => ({
+      name: item.name,
+      activeFrom: Number(item.priorityAt || item.updatedAt || item.createdAt || Date.now()) + delay
+    }));
+}
+
+function nativeReminderSlots(profile, now, horizon) {
+  const slots = [];
+  const startMinutes = reminderTimeToMinutes(profile.startTime, 8 * 60);
+  const endMinutes = reminderTimeToMinutes(profile.endTime, 21 * 60);
+  const frequencyMinutes = Math.max(60, Number(profile.frequencyHours || 6) * 60);
+  const windowMinutes = startMinutes === endMinutes
+    ? 24 * 60 - 1
+    : endMinutes > startMinutes ? endMinutes - startMinutes : 24 * 60 - startMinutes + endMinutes;
+  const firstDay = new Date(now);
+  firstDay.setHours(0, 0, 0, 0);
+  firstDay.setDate(firstDay.getDate() - 1);
+
+  for (let day = new Date(firstDay); day.getTime() <= horizon; day.setDate(day.getDate() + 1)) {
+    for (let offset = 0; offset <= windowMinutes; offset += frequencyMinutes) {
+      const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, startMinutes + offset, 0, 0);
+      if (at.getTime() > now + 60 * 1000 && at.getTime() <= horizon) slots.push(at);
+    }
+  }
+  return slots;
+}
+
+function nativeReminderSummary(type, sources) {
+  const labels = {
+    expenses: sources.length === 1 ? 'conta' : 'contas',
+    tasks: sources.length === 1 ? 'tarefa' : 'tarefas',
+    market: sources.length === 1 ? 'item prioritário' : 'itens prioritários'
+  };
+  const names = sources.slice(0, 3).map(source => source.name).join(', ');
+  const remaining = sources.length > 3 ? ` e mais ${sources.length - 3}` : '';
+  return `${sources.length} ${labels[type]}: ${names}${remaining}`;
 }
 
 function reminderProfileIsActive(profile) {
@@ -3009,6 +3247,7 @@ function incomeCategoryLabel(value) {
 function saveData(options = {}) {
   db.updatedAt = Date.now();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  scheduleNativeReminderSync();
   if (!options.skipRender) render();
   if (!options.skipSync) {
     syncState.meta.localDirty = true;
@@ -3497,6 +3736,7 @@ async function pullRemoteData(options = {}) {
       saveSyncMeta();
     }
     render();
+    scheduleNativeReminderSync();
     if (notify) toast('Dados atualizados.', 'good');
     return true;
   } catch (error) {
@@ -3600,6 +3840,11 @@ function lockApp() {
 
 function setAppLocked(locked) {
   document.body.classList.toggle('app-locked', locked);
+  if (!locked && pendingNativeReminderView) {
+    const view = pendingNativeReminderView;
+    pendingNativeReminderView = '';
+    setTimeout(() => setView(view), 0);
+  }
 }
 
 async function refreshSyncUsers() {

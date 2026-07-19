@@ -146,7 +146,7 @@
         <article class="panel market-panel">
           <div class="market-filter-row">
             <div class="market-select-filters">
-              <button class="icon-btn market-reset-button" type="button" id="clearMarketFiltersBtn" title="Limpar filtros" aria-label="Limpar filtros" data-icon="refresh-cw"></button>
+              <button class="icon-btn market-reset-button" type="button" id="clearMarketFiltersBtn" title="Limpar filtros" aria-label="Limpar filtros"><span aria-hidden="true">🚫︎</span></button>
               <label class="filter-select market-status-filter">
                 <span>Situação</span>
                 <select id="marketStatusFilter">
@@ -654,7 +654,7 @@
         </label>
         <label>
           <span>Unidades de compra</span>
-          <input id="productUnit" placeholder="un; caixa; pacote" />
+          <input id="productUnit" placeholder="un; caixa; pacote" autocapitalize="none" autocorrect="off" spellcheck="false" />
         </label>
         <label class="span-2">
           <span>Marcas boas</span>
@@ -762,7 +762,7 @@
         </label>
         <label>
           <span>Unidade</span>
-          <input id="quantityUnitInput" list="unitOptions" required />
+          <input id="quantityUnitInput" list="unitOptions" autocapitalize="none" autocorrect="off" spellcheck="false" required />
           <datalist id="unitOptions">
             <option value="un"></option>
             <option value="kg"></option>
@@ -924,7 +924,7 @@
         <img class="brand-mark" src="icon.svg" alt="" aria-hidden="true" />
         <div>
           <h3>Alô Finanças</h3>
-          <small class="login-version" id="loginVersion">v1.0.18</small>
+          <small class="login-version" id="loginVersion">v1.0.19</small>
         </div>
       </div>
       <label>
