@@ -4772,3 +4772,20 @@ body[data-active-view="tasks"] .topbar {
     min-height: 44px;
   }
 }
+
+/* Native Android system bars and dock spacing for 1.0.21. */
+@media (max-width: 760px) {
+  html.native-android .app-shell {
+    padding-bottom: calc(var(--nav-height) + 38px);
+  }
+
+  html.native-android .bottom-nav {
+    bottom: 8px;
+    background: #ffffff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow:
+      0 20px 0 20px var(--bg),
+      0 -10px 28px rgba(18, 49, 41, 0.16);
+  }
+}

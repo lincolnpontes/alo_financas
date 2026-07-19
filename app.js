@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.20';
+const APP_VERSION = '1.0.21';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -126,6 +126,10 @@ if (dataCleanupPending) {
 document.addEventListener('DOMContentLoaded', init);
 
 function init() {
+  document.documentElement.classList.toggle(
+    'native-android',
+    isNativeApp() && window.Capacitor?.getPlatform?.() === 'android'
+  );
   if (syncEnabled()) {
     clearAuthSession();
     setAppLocked(true);

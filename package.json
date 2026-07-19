@@ -1,6 +1,6 @@
 {
   "name": "alo-financas",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "private": true,
   "description": "Financas da casa, tarefas e lista da feira.",
   "scripts": {

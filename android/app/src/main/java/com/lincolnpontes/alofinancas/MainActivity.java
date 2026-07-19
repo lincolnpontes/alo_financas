@@ -1,6 +1,5 @@
 package com.lincolnpontes.alofinancas;
 
-import android.graphics.Color;
 import android.os.Bundle;
 import android.view.View;
 
@@ -13,6 +12,8 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private static final int SYSTEM_BAR_COLOR = 0xFF102C28;
+    private static final int APP_BACKGROUND_COLOR = 0xFFF5F7F4;
     private static final int EXTRA_TOP_DP = 8;
     private static final int EXTRA_BOTTOM_DP = 10;
 
@@ -24,15 +25,18 @@ public class MainActivity extends BridgeActivity {
 
     private void applySystemBarSafeArea() {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        getWindow().setStatusBarColor(Color.rgb(245, 247, 244));
-        getWindow().setNavigationBarColor(Color.rgb(245, 247, 244));
+        getWindow().setStatusBarColor(SYSTEM_BAR_COLOR);
+        getWindow().setNavigationBarColor(SYSTEM_BAR_COLOR);
 
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-        controller.setAppearanceLightStatusBars(true);
-        controller.setAppearanceLightNavigationBars(true);
+        controller.setAppearanceLightStatusBars(false);
+        controller.setAppearanceLightNavigationBars(false);
 
         View root = findViewById(android.R.id.content);
-        root.setBackgroundColor(Color.rgb(245, 247, 244));
+        root.setBackgroundColor(SYSTEM_BAR_COLOR);
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().setBackgroundColor(APP_BACKGROUND_COLOR);
+        }
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
             int safeTop = Math.max(bars.top, getSystemDimension("status_bar_height")) + dp(EXTRA_TOP_DP);
