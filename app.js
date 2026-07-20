@@ -1,5 +1,5 @@
 const APP_ID = 'alo-financas';
-const APP_VERSION = '1.0.24';
+const APP_VERSION = '1.0.25';
 const STORAGE_KEY = 'alo_financas_db_v1';
 const SYNC_SETTINGS_KEY = 'alo_financas_sync_settings_v1';
 const SYNC_META_KEY = 'alo_financas_sync_meta_v1';
@@ -67,6 +67,7 @@ const ICONS = {
   'skip-forward': '<path d="m5 4 10 8-10 8V4Z"></path><path d="M19 5v14"></path>',
   settings: '<path d="M12.2 2h-.4l-1 2.6a7.8 7.8 0 0 0-1.8.8L6.4 4.3l-.3.3-2 3.4.2.4 2.1.6a8 8 0 0 0 0 2L4.3 11.6l-.2.4 2 3.4.3.3L9 14.6c.6.4 1.2.6 1.8.8l1 2.6h.4l1-2.6c.6-.2 1.2-.4 1.8-.8l2.6 1.1.3-.3 2-3.4-.2-.4-2.1-.6a8 8 0 0 0 0-2l2.1-.6.2-.4-2-3.4-.3-.3L15 5.4a7.8 7.8 0 0 0-1.8-.8L12.2 2Z"></path><circle cx="12" cy="10" r="3"></circle>',
   star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2l-5-4.9 6.9-1L12 2Z"></path>',
+  'trending-up': '<path d="m22 7-8.5 8.5-5-5L2 17"></path><path d="M16 7h6v6"></path>',
   'shopping-basket': '<path d="m5 11 4-7"></path><path d="m19 11-4-7"></path><path d="M2 11h20"></path><path d="m3.5 11 1.6 8.1A2 2 0 0 0 7 21h10a2 2 0 0 0 2-1.9l1.5-8.1"></path><path d="M9 15v2"></path><path d="M15 15v2"></path>',
   'trash-2': '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 15H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
   undo: '<path d="M9 14 4 9l5-5"></path><path d="M4 9h10a6 6 0 1 1 0 12h-1"></path>',
@@ -588,10 +589,34 @@ function renderFinances() {
 
 function renderNavigationBadges() {
   const pendingCount = visible(db.pantry.list).filter(item => item.status === 'needed').length;
-  const badge = $('#marketPendingBadge');
+  const dueExpenseCount = visible(db.finances.expenses)
+    .filter(item => item.status !== 'paid')
+    .filter(item => isDueWithinDays(expenseDueTimestamp(item), 3))
+    .length;
+  const dueTaskCount = visible(db.tasks)
+    .filter(item => item.status !== 'completed')
+    .filter(item => isDueWithinDays(taskDueTimestamp(item), 3))
+    .length;
+  setNavigationBadge('marketPendingBadge', pendingCount);
+  setNavigationBadge('financeDueBadge', dueExpenseCount);
+  setNavigationBadge('taskDueBadge', dueTaskCount);
+}
+
+function setNavigationBadge(id, count) {
+  const badge = document.getElementById(id);
   if (!badge) return;
-  badge.textContent = pendingCount > 99 ? '99+' : String(pendingCount);
-  badge.hidden = pendingCount === 0;
+  badge.textContent = count > 99 ? '99+' : String(count);
+  badge.hidden = count === 0;
+}
+
+function isDueWithinDays(timestamp, days) {
+  if (!timestamp) return false;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const due = new Date(timestamp);
+  const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
+  const distance = Math.round((dueDay - today) / (24 * 60 * 60 * 1000));
+  return distance >= 0 && distance <= days;
 }
 
 function renderExpenseList() {
@@ -616,26 +641,26 @@ function renderIncomeList() {
 }
 
 function renderInvestmentList() {
-  const items = visibleInvestmentLinks()
-    .map(link => ({ link, account: investmentAccount(link) }))
-    .filter(entry => entry.account)
-    .sort((a, b) => a.account.name.localeCompare(b.account.name));
+  const items = visibleInvestments(state.month)
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(b.createdAt || 0) - Number(a.createdAt || 0));
   $('#investmentList').innerHTML = items.length
     ? items.map(investmentRow).join('')
-    : emptyState('Vincule uma poupança, investimento ou carteira digital.');
+    : emptyState('Nenhum investimento neste mês.');
 }
 
-function investmentRow({ link, account }) {
+function investmentRow(item) {
+  const account = investmentAccount(item);
+  const accountName = account?.name || item.accountName || 'Conta de destino';
   return `
     <div class="data-row finance-row investment-row">
-      <button class="row-icon finance-action-trigger investment" type="button" data-edit-investment="${escapeAttr(link.id)}" title="Editar vínculo" aria-label="Editar investimento ${escapeAttr(account.name)}">${iconSvg('piggy-bank')}</button>
+      <button class="row-icon finance-action-trigger investment" type="button" data-edit-investment="${escapeAttr(item.id)}" title="Editar investimento" aria-label="Editar investimento em ${escapeAttr(accountName)}">${iconSvg('trending-up')}</button>
       <div class="data-main">
-        <strong>${escapeHTML(account.name)}</strong>
-        <small>${escapeHTML(`${account.type || 'Investimento'} (em ${shortDate(account.updatedAt || account.createdAt)})`)}</small>
+        <strong>${escapeHTML(accountName)}</strong>
+        <small>${escapeHTML(`${dateOrDash(item.date)}${item.notes ? ` - ${item.notes}` : ''}`)}</small>
       </div>
       <div class="row-amount">
-        <span>${escapeHTML(privateValue(formatMoney(account.balance)))}</span>
-        <span class="badge investment">Vinculado</span>
+        <span>${escapeHTML(privateValue(formatMoney(item.amount)))}</span>
+        <span class="badge investment">Investido</span>
       </div>
     </div>
   `;
@@ -998,17 +1023,23 @@ function nativeLocalNotifications() {
 }
 
 function nativeBiometricLogin() {
-  if (!isNativeApp() || window.Capacitor?.getPlatform?.() !== 'android') return null;
+  if (window.Capacitor?.getPlatform?.() !== 'android') return null;
   if (!nativeBiometricLoginPlugin && typeof window.Capacitor?.registerPlugin === 'function') {
     nativeBiometricLoginPlugin = window.Capacitor.registerPlugin('BiometricLogin');
   }
-  return nativeBiometricLoginPlugin;
+  return nativeBiometricLoginPlugin || window.Capacitor?.Plugins?.BiometricLogin || null;
 }
 
 async function initializeBiometricLogin() {
   const plugin = nativeBiometricLogin();
   if (!plugin) {
-    biometricState = { ...biometricState, available: false, enabled: false, loaded: true };
+    biometricState = {
+      ...biometricState,
+      available: false,
+      enabled: false,
+      error: isNativeApp() ? 'A integração biométrica não foi carregada. Instale o APK atualizado.' : '',
+      loaded: true
+    };
     renderBiometricSettings();
     return;
   }
@@ -1016,10 +1047,10 @@ async function initializeBiometricLogin() {
     const status = await plugin.getStatus();
     biometricState = {
       ...biometricState,
-      available: status.available === true,
+      available: true,
       enabled: status.enabled === true,
       login: String(status.login || '').toLowerCase(),
-      reason: String(status.reason || ''),
+      reason: '',
       error: '',
       loaded: true
     };
@@ -1054,10 +1085,10 @@ function renderBiometricSettings() {
 
 async function handleBiometricToggle(enabled) {
   const plugin = nativeBiometricLogin();
-  if (!plugin || !biometricState.available) {
-    biometricState = { ...biometricState, pendingEnable: false, error: biometricState.reason || 'Biometria indisponível neste aparelho.' };
+  if (!plugin) {
+    biometricState = { ...biometricState, pendingEnable: false, error: 'A integração biométrica não foi carregada. Instale o APK atualizado.' };
     renderBiometricSettings();
-    return toast('A biometria não está disponível neste aparelho.', 'error');
+    return toast(biometricState.error, 'error');
   }
   if (!enabled) {
     if (biometricState.enabled) await plugin.disable();
@@ -1075,7 +1106,7 @@ async function handleBiometricToggle(enabled) {
 function maybeStartBiometricLogin() {
   if (!$('#loginDialog').open || biometricState.autoAttempted || !biometricState.loaded) return;
   const rememberedLogin = String(localStorage.getItem(LAST_LOGIN_KEY) || '').toLowerCase();
-  if (!biometricState.available || !biometricState.enabled || biometricState.login !== rememberedLogin) return;
+  if (!biometricState.enabled || biometricState.login !== rememberedLogin) return;
   biometricState.autoAttempted = true;
   setTimeout(() => runBiometricLogin(true), 120);
 }
@@ -1927,7 +1958,7 @@ function calculateTotals(month = state.month) {
   const expenses = visible(db.finances.expenses).filter(item => item.month === month);
   const incomes = visible(db.finances.incomes).filter(item => item.month === month);
   const accounts = visible(db.finances.accounts);
-  const investmentAccountIds = new Set(visibleInvestmentLinks().map(item => item.accountId));
+  const investments = visibleInvestments(month);
   const receivables = visible(db.finances.receivables);
   const debts = visible(db.finances.debts);
 
@@ -1942,9 +1973,7 @@ function calculateTotals(month = state.month) {
   const incomeReceived = sum(incomes.filter(item => item.status === 'received'), 'amount');
   const incomeOpen = sum(incomes.filter(item => item.status !== 'received'), 'amount');
   const accountTotal = sum(accounts, 'balance');
-  const investmentTotal = roundMoney(accounts
-    .filter(account => investmentAccountIds.has(account.id) && isInvestmentAccount(account))
-    .reduce((total, account) => total + Number(account.balance || 0), 0));
+  const investmentTotal = roundMoney(investments.reduce((total, item) => total + Number(item.amount || 0), 0));
   const receivableOpen = roundMoney(receivables.reduce((total, item) => total + remainingFlowAmount('receivable', item), 0));
   const debtOpen = roundMoney(debts.reduce((total, item) => total + remainingFlowAmount('debt', item), 0));
 
@@ -1959,7 +1988,7 @@ function calculateTotals(month = state.month) {
     investmentTotal,
     receivableOpen,
     debtOpen,
-    monthBalance: incomeTotal - expenseTotal
+    monthBalance: roundMoney(incomeTotal - expenseTotal - investmentTotal)
   };
 }
 
@@ -1971,49 +2000,50 @@ function isInvestmentAccount(account) {
   return ['poupanca', 'investimento', 'carteira digital'].includes(normalizeText(account?.type));
 }
 
-function visibleInvestmentLinks() {
-  const seen = new Set();
+function visibleInvestments(month = '') {
   return visible(db.finances.investments)
-    .slice()
-    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
-    .filter(link => {
-      if (!link.accountId || seen.has(link.accountId)) return false;
-      seen.add(link.accountId);
-      return true;
-    });
+    .filter(item => Number(item.amount || 0) > 0)
+    .filter(item => !month || item.month === month);
 }
 
-function investmentAccount(link) {
-  return visible(db.finances.accounts).find(account => account.id === link?.accountId && isInvestmentAccount(account)) || null;
+function investmentAccount(item, includeDeleted = false) {
+  return db.finances.accounts.find(account => account.id === item?.accountId && (includeDeleted || !account.deletedAt)) || null;
 }
 
-function eligibleInvestmentAccounts(currentLinkId = '') {
-  const usedAccountIds = new Set(visible(db.finances.investments)
-    .filter(link => link.id !== currentLinkId)
-    .map(link => link.accountId));
+function eligibleInvestmentAccounts() {
   return visible(db.finances.accounts)
     .filter(isInvestmentAccount)
-    .filter(account => !usedAccountIds.has(account.id))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function openInvestmentDialog(id = '') {
-  const link = id ? db.finances.investments.find(item => item.id === id && !item.deletedAt) : null;
-  const accounts = eligibleInvestmentAccounts(link?.id || '');
+  const item = id ? db.finances.investments.find(entry => entry.id === id && !entry.deletedAt) : null;
+  const accounts = eligibleInvestmentAccounts();
   if (!accounts.length) {
     toast('Cadastre primeiro uma poupança, investimento ou carteira digital em Contas e reservas.', 'error');
     return;
   }
-  $('#investmentDialogTitle').textContent = link ? 'Editar investimento' : 'Vincular investimento';
-  $('#investmentId').value = link?.id || '';
+  const defaultDate = state.month === currentMonth() ? dateStamp() : `${state.month}-01`;
+  const [investmentYear, investmentMonth] = state.month.split('-').map(Number);
+  const investmentLastDay = new Date(investmentYear, investmentMonth, 0).getDate();
+  $('#investmentDialogTitle').textContent = item ? 'Editar investimento' : 'Novo investimento';
+  $('#investmentId').value = item?.id || '';
   fillSelect(
     $('#investmentAccountInput'),
     accounts.map(account => [account.id, `${account.name} - ${account.type}`]),
-    link?.accountId || accounts[0].id
+    item?.accountId || accounts[0].id
   );
-  $('#deleteInvestmentBtn').hidden = !link;
+  $('#investmentAmountInput').value = item?.amount == null ? '' : formatNumberInput(item.amount);
+  $('#investmentDateInput').min = `${state.month}-01`;
+  $('#investmentDateInput').max = `${state.month}-${String(investmentLastDay).padStart(2, '0')}`;
+  $('#investmentDateInput').value = item?.date || defaultDate;
+  $('#investmentNotesInput').value = item?.notes || '';
+  $('#deleteInvestmentBtn').hidden = !item;
   $('#investmentDialog').showModal();
-  $('#investmentAccountInput').focus();
+  setTimeout(() => {
+    $('#investmentAmountInput').focus();
+    $('#investmentAmountInput').select();
+  }, 0);
 }
 
 function saveInvestmentFromForm(event) {
@@ -2022,32 +2052,57 @@ function saveInvestmentFromForm(event) {
   const accountId = $('#investmentAccountInput').value;
   const account = visible(db.finances.accounts).find(item => item.id === accountId && isInvestmentAccount(item));
   if (!account) return toast('Escolha uma conta elegível.', 'error');
+  const amount = parseMoney($('#investmentAmountInput').value);
+  if (!(amount > 0)) return toast('Informe um valor maior que zero.', 'error');
+  const date = $('#investmentDateInput').value;
+  if (!date) return toast('Informe a data do investimento.', 'error');
+  if (!date.startsWith(`${state.month}-`)) return toast('A data precisa pertencer ao mês selecionado.', 'error');
   const now = Date.now();
-  let link = db.finances.investments.find(item => item.id === id);
-  const isNew = !link;
-  if (!link) {
-    link = { id, createdAt: now, deletedAt: 0 };
-    db.finances.investments.push(link);
+  let item = db.finances.investments.find(entry => entry.id === id);
+  const isNew = !item;
+
+  if (item && Number(item.amount || 0) > 0) {
+    const previousAccount = investmentAccount(item, true);
+    if (previousAccount) {
+      previousAccount.balance = roundMoney(Number(previousAccount.balance || 0) - Number(item.amount || 0));
+      previousAccount.updatedAt = now;
+    }
   }
-  link.accountId = account.id;
-  link.updatedAt = now;
-  link.deletedAt = 0;
-  addAudit(isNew ? 'vinculou' : 'alterou', 'o investimento', account.name);
+  if (!item) {
+    item = { id, createdAt: now, deletedAt: 0 };
+    db.finances.investments.push(item);
+  }
+  item.accountId = account.id;
+  item.accountName = account.name;
+  item.accountType = account.type;
+  item.amount = roundMoney(amount);
+  item.date = date;
+  item.month = state.month;
+  item.notes = $('#investmentNotesInput').value.trim();
+  item.updatedAt = now;
+  item.deletedAt = 0;
+  account.balance = roundMoney(Number(account.balance || 0) + item.amount);
+  account.updatedAt = now;
+  addAudit(isNew ? 'registrou' : 'alterou', 'o investimento', `${account.name} - ${formatMoney(item.amount)}`);
   saveData();
   closeDialog('investmentDialog');
-  toast('Investimento vinculado.', 'good');
+  toast('Investimento registrado.', 'good');
 }
 
 function deleteCurrentInvestment() {
   const id = $('#investmentId').value;
-  const link = db.finances.investments.find(item => item.id === id && !item.deletedAt);
-  if (!link || !confirm('Excluir este vínculo de investimento?')) return;
-  const account = investmentAccount(link);
+  const item = db.finances.investments.find(entry => entry.id === id && !entry.deletedAt);
+  if (!item || !confirm('Excluir este investimento? O valor será retirado da conta de destino.')) return;
+  const account = investmentAccount(item, true);
+  if (account && Number(item.amount || 0) > 0) {
+    account.balance = roundMoney(Number(account.balance || 0) - Number(item.amount || 0));
+    account.updatedAt = Date.now();
+  }
   markDeleted(db.finances.investments, id);
-  addAudit('excluiu', 'o investimento', account?.name || 'Conta vinculada');
+  addAudit('excluiu', 'o investimento', `${account?.name || item.accountName || 'Conta de destino'} - ${formatMoney(item.amount)}`);
   saveData();
   closeDialog('investmentDialog');
-  toast('Vínculo excluído.', 'good');
+  toast('Investimento excluído.', 'good');
 }
 
 function openRecordDialog(type, id = '') {
@@ -2124,11 +2179,6 @@ async function saveRecordFromForm(event) {
     item.balance = amount;
     item.type = $('#recordCategory').value;
     if (!item.name) return toast('Informe o nome da conta.', 'error');
-    if (!isInvestmentAccount(item)) {
-      visible(db.finances.investments)
-        .filter(link => link.accountId === item.id)
-        .forEach(link => markDeleted(db.finances.investments, link.id));
-    }
   } else if (type === 'receivable' || type === 'debt') {
     const minimumBase = existing ? Math.max(0, roundMoney(settledFlowAmount(type, existing) - increasedFlowAmount(type, existing))) : 0;
     if (amount + 0.005 < minimumBase) return toast(`O valor inicial não pode ser menor que ${formatMoney(minimumBase)}, considerando o histórico.`, 'error');
@@ -2265,11 +2315,6 @@ function deleteCurrentRecord() {
   if (!confirm('Excluir este registro?')) return;
   const item = getCollection(type).find(entry => entry.id === id);
   markDeleted(getCollection(type), id);
-  if (type === 'account') {
-    visible(db.finances.investments)
-      .filter(link => link.accountId === id)
-      .forEach(link => markDeleted(db.finances.investments, link.id));
-  }
   if (type === 'receivable' || type === 'debt') {
     flowEntries(type, id).forEach(entry => markDeleted(db.finances.settlements, entry.id));
   }
@@ -3868,7 +3913,7 @@ function defaultDB() {
 
   return {
     appId: APP_ID,
-    schemaVersion: 4,
+    schemaVersion: 5,
     createdAt: now,
     updatedAt: now,
     settings: {
@@ -3913,10 +3958,18 @@ function normalizeDB(input) {
   };
   normalized.appId = APP_ID;
   normalized.settings.reminders = normalizeReminderSettings(data.settings?.reminders);
-  normalized.schemaVersion = 4;
+  normalized.schemaVersion = 5;
   ['expenses', 'incomes', 'accounts', 'investments', 'receivables', 'debts', 'recurring', 'settlements'].forEach(key => {
     const normalizer = key === 'expenses' || key === 'incomes' ? normalizeFinanceItem : normalizeItem;
     normalized.finances[key] = Array.isArray(normalized.finances[key]) ? normalized.finances[key].map(normalizer) : [];
+  });
+  normalized.finances.investments.forEach(item => {
+    if (!item.deletedAt && !(Number(item.amount || 0) > 0)) {
+      const migrationStamp = Number(item.updatedAt || item.createdAt || normalized.updatedAt || Date.now());
+      item.deletedAt = migrationStamp;
+      item.updatedAt = migrationStamp;
+      item.legacyLink = true;
+    }
   });
   normalized.finances.expenses.forEach(item => reconcileWeeklyExpenseStatus(item));
   ['products', 'list'].forEach(key => {
@@ -4040,7 +4093,6 @@ async function handleAccessLogin(event) {
   const wantsBiometric = $('#biometricLoginEnabled')?.checked === true;
   const shouldEnableBiometric = wantsBiometric
     && biometricPlugin
-    && biometricState.available
     && (!biometricState.enabled || biometricState.login !== login);
   setLoginButtonBusy('accessLoginBtn', true);
   try {

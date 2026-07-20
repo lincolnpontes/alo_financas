@@ -100,7 +100,7 @@
             <article class="panel investment-panel" id="investmentPanel">
               <div class="panel-title">
                 <h3>Investimentos</h3>
-                <button class="panel-add-btn investment-add" type="button" id="addInvestmentBtn" title="Vincular investimento" aria-label="Vincular investimento" data-icon="plus"></button>
+                <button class="panel-add-btn investment-add" type="button" id="addInvestmentBtn" title="Novo investimento" aria-label="Novo investimento" data-icon="plus"></button>
               </div>
               <div class="data-list compact-list" id="investmentList"></div>
             </article>
@@ -443,9 +443,9 @@
 
     <nav class="bottom-nav" aria-label="Navegacao principal">
       <button type="button" class="is-active nav-dashboard" data-view="dashboard" aria-label="Painel" title="Painel"><span class="nav-emoji" aria-hidden="true">🏠</span><span>Painel</span></button>
-      <button type="button" class="nav-finances" data-view="finances" aria-label="Finanças" title="Finanças"><span class="nav-emoji" aria-hidden="true">💲</span><span>Finanças</span></button>
+      <button type="button" class="nav-finances" data-view="finances" aria-label="Finanças" title="Finanças"><span class="nav-emoji" aria-hidden="true">💲</span><span>Finanças</span><span class="nav-count" id="financeDueBadge" hidden>0</span></button>
       <button type="button" data-view="market" aria-label="Feira" title="Feira"><span class="nav-emoji" aria-hidden="true">🛒</span><span>Feira</span><span class="nav-count" id="marketPendingBadge" hidden>0</span></button>
-      <button type="button" data-view="tasks" aria-label="Tarefas" title="Tarefas"><span class="nav-emoji" aria-hidden="true">📌</span><span>Tarefas</span></button>
+      <button type="button" data-view="tasks" aria-label="Tarefas" title="Tarefas"><span class="nav-emoji" aria-hidden="true">📌</span><span>Tarefas</span><span class="nav-count" id="taskDueBadge" hidden>0</span></button>
       <button type="button" data-view="settings" aria-label="Ajustes" title="Ajustes"><span class="nav-emoji" aria-hidden="true">⚙️</span><span>Ajustes</span></button>
     </nav>
   </div>
@@ -557,21 +557,35 @@
     </form>
   </dialog>
 
-  <dialog class="modal compact-modal" id="investmentDialog">
+  <dialog class="modal" id="investmentDialog">
     <form method="dialog" class="modal-card" id="investmentForm">
       <div class="modal-title">
         <div>
-          <p class="eyebrow">Patrimônio</p>
-          <h3 id="investmentDialogTitle">Vincular investimento</h3>
+          <p class="eyebrow">Aporte</p>
+          <h3 id="investmentDialogTitle">Novo investimento</h3>
         </div>
         <button class="icon-btn" type="button" data-close-dialog="investmentDialog" aria-label="Fechar" title="Fechar" data-icon="x"></button>
       </div>
       <input type="hidden" id="investmentId" />
-      <label>
-        <span>Conta vinculada</span>
-        <select id="investmentAccountInput" required></select>
-      </label>
-      <p class="investment-dialog-note">O valor investido acompanha automaticamente o saldo da conta escolhida.</p>
+      <div class="form-grid investment-form-grid">
+        <label class="span-2">
+          <span>Conta de destino</span>
+          <select id="investmentAccountInput" required></select>
+        </label>
+        <label>
+          <span>Valor</span>
+          <input id="investmentAmountInput" inputmode="numeric" data-money-cents required placeholder="0,00" />
+        </label>
+        <label>
+          <span>Data do investimento</span>
+          <input id="investmentDateInput" type="date" required />
+        </label>
+        <label class="span-2">
+          <span>Observação</span>
+          <textarea id="investmentNotesInput" rows="2" placeholder="Opcional"></textarea>
+        </label>
+      </div>
+      <p class="investment-dialog-note">O aporte reduz o saldo do mês e aumenta o saldo da conta de destino.</p>
       <div class="modal-actions compact-actions">
         <button class="danger-btn" type="button" id="deleteInvestmentBtn" data-icon="trash-2" hidden>Excluir</button>
         <span class="spacer"></span>
@@ -991,7 +1005,7 @@
         <img class="brand-mark" src="icon.svg" alt="" aria-hidden="true" />
         <div>
           <h3>Alô Finanças</h3>
-              <small class="login-version" id="loginVersion">v1.0.24</small>
+              <small class="login-version" id="loginVersion">v1.0.25</small>
         </div>
       </div>
       <label>

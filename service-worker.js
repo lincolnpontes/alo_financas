@@ -1,4 +1,4 @@
-const CACHE_NAME = 'alo-financas-v1.0.24';
+const CACHE_NAME = 'alo-financas-v1.0.25';
 const ASSETS = [
   './',
   './index.html',

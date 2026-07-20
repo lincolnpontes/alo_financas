@@ -1705,6 +1705,39 @@ body {
   }
 }
 
+/* Transactional investments and due-soon navigation counters for 1.0.25. */
+#investmentDialog .modal-card {
+  width: min(560px, calc(100vw - 28px));
+}
+
+.investment-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.investment-row .data-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  #investmentDialog .modal-card {
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .investment-form-grid {
+    gap: 10px 8px;
+  }
+
+  .investment-form-grid > label,
+  .investment-form-grid input,
+  .investment-form-grid select,
+  .investment-form-grid textarea {
+    min-width: 0;
+  }
+}
+
 /* Restored ordering flow and compact settings for 1.0.15 */
 .settings-section {
   overflow: hidden;
